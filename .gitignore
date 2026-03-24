@@ -1,0 +1,18 @@
+# Kotlin / KMP logs
+.kotlin/
+**/.kotlin/errors/
+*/.log
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+
+# Gradle + build outputs
+.gradle/
+**/build/
+
+# Local config
+local.properties
+
+# Mac junk
+.DS_Store

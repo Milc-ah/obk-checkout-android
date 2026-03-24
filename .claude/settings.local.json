@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la \"C:/Users/jnthn/projects/milca 2222222/obk-checkout-android-main \\(1\\)/obk-checkout-android-main\")",
+      "Bash(find \"C:/Users/jnthn/projects/milca 2222222/obk-checkout-android-main \\(1\\)/obk-checkout-android-main/app\" -name \"*.kt\" -type f)"
+    ]
+  }
+}
