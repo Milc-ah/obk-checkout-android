@@ -59,6 +59,7 @@ fun ContinuousScannerScreen(
     var lastScanAt    by remember { mutableStateOf(0L) }
     var lastScanValue by remember { mutableStateOf("") }
     var manualInput   by remember { mutableStateOf("") }
+    var lastAddedId   by remember { mutableStateOf<String?>(null) }
 
     val showGoTop by remember {
         derivedStateOf {
@@ -93,6 +94,7 @@ fun ContinuousScannerScreen(
 
                     if (toteId.isNotBlank() && allTotes.none { it.second == toteId }) {
                         onScannedTote(raw)
+                        lastAddedId = toteId
                     }
                 },
                 onBack = onBack
@@ -128,6 +130,7 @@ fun ContinuousScannerScreen(
                             val trimmed = manualInput.trim()
                             if (trimmed.isNotEmpty()) {
                                 onManualToteId(trimmed)
+                                lastAddedId = trimmed.removePrefix("#").trim()
                                 manualInput = ""
                             }
                         },
@@ -136,6 +139,16 @@ fun ContinuousScannerScreen(
                     ) {
                         Text("Add", color = MaterialTheme.colorScheme.onPrimary)
                     }
+                }
+
+                if (lastAddedId != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "Last added: #$lastAddedId",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                 }
 
                 Spacer(Modifier.height(10.dp))

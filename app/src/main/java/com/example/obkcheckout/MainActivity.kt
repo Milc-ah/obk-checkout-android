@@ -132,6 +132,10 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
                 onRemove         = { company, id -> vm.removeScannedId(company, id) },
                 onAddMore        = { navController.navigate("scanner") },
                 onBack           = { navController.popBackStack() },
+                onSplitByCharity = {
+                    vm.setSplitEnabled(true)
+                    navController.navigate("splitByCharity?returnToReview=false")
+                },
                 onProceed        = { navController.navigate("charityDestination?returnToReview=false") }
             )
         }
@@ -431,6 +435,7 @@ private fun ConfirmScreen(
     onRemove: (company: String, toteId: String) -> Unit,
     onAddMore: () -> Unit,
     onBack: () -> Unit,
+    onSplitByCharity: () -> Unit,
     onProceed: () -> Unit
 ) {
     val green = MaterialTheme.colorScheme.primary
@@ -492,6 +497,18 @@ private fun ConfirmScreen(
                 colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White)
             ) {
                 Text("Add More", color = green, fontWeight = FontWeight.Bold, fontSize = fs(14))
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            OutlinedButton(
+                onClick = onSplitByCharity,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                border = BorderStroke(2.dp, green),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White)
+            ) {
+                Text("Split by Charity", color = green, fontWeight = FontWeight.Bold, fontSize = fs(14))
             }
 
             Spacer(Modifier.height(12.dp))
