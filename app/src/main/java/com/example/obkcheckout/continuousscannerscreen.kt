@@ -21,7 +21,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,14 +47,10 @@ fun ContinuousScannerScreen(
     val scope     = rememberCoroutineScope()
     val green     = MaterialTheme.colorScheme.primary
 
-    val allTotes by remember {
-        derivedStateOf {
-            scannedByCompany.entries
-                .flatMap { entry -> entry.value.map { toteId -> entry.key to toteId } }
-                .distinctBy { it.second }
-                .sortedBy { it.second }
-        }
-    }
+    val allTotes = scannedByCompany.entries
+        .flatMap { entry -> entry.value.map { toteId -> entry.key to toteId } }
+        .distinctBy { it.second }
+        .sortedBy { it.second }
 
     var pendingDelete by remember { mutableStateOf<Pair<String, String>?>(null) }
 

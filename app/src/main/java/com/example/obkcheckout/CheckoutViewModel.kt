@@ -1,7 +1,5 @@
 package com.example.obkcheckout
 
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -10,12 +8,17 @@ import com.example.obkcheckout.Entities.Organization
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
 
 /**
  * Parsed fields from a tote QR code.
- * Format: Company Name,Batch ID,Meals in batch,Tote ID,Meals in tote,Checked in date (UTC)
+ * Format (one field per line):
+ *   Company Name
+ *   Batch ID
+ *   Meals in batch
+ *   Tote ID
+ *   Meals in tote
+ *   Checked in date (UTC)
  */
 internal data class ParsedQrCode(
     val companyName: String,
@@ -28,7 +31,7 @@ internal data class ParsedQrCode(
 
 /**
  * Tries to parse a raw QR string as the 6-field tote QR format.
- * Attempts comma, pipe, semicolon, and tab as delimiters.
+ * Tries newline delimiters first (multi-line QR), then comma/pipe/semicolon/tab.
  * Returns null if the string doesn't match the expected format.
  */
 internal fun parseQrCode(raw: String): ParsedQrCode? {
@@ -55,12 +58,9 @@ internal fun parseQrCode(raw: String): ParsedQrCode? {
 
 /**
  * Normalises a raw QR / barcode string to a plain tote ID.
- * Exposed as internal so unit tests can verify it directly.
  */
 internal fun normalizeToToteId(rawValue: String): String {
-    // Try the full 6-field QR format first
     parseQrCode(rawValue)?.let { return it.toteId }
-    // Fall back to stripping leading "#" and taking leading digits
     val trimmed = rawValue.trim()
     val cleaned = trimmed.removePrefix("#").trim()
     val digits  = cleaned.takeWhile { it.isDigit() }
@@ -69,16 +69,18 @@ internal fun normalizeToToteId(rawValue: String): String {
 
 /**
  * Holds all checkout session state so it survives recomposition and
- * configuration changes (e.g. screen rotation).
+ * configuration changes.
  *
- * State is exposed via read-only properties backed by [mutableStateOf] so
- * Compose can observe changes. Writes go through the explicit mutator functions.
+ * scannedByCompany is exposed as mutableStateOf<Map> so that every
+ * mutation replaces the value, guaranteeing Compose detects the change
+ * and recomposes all screens that read it.
  */
 class CheckoutViewModel : ViewModel() {
 
-    private val api = QairosRetrofit.api
+    private val api  = QairosRetrofit.api
+    private val json = Json { ignoreUnknownKeys = true }
 
-    // Backing state — private write, public read via property below
+    // --- Observable state ---
     private val _selectedCharity  = mutableStateOf("Select")
     private val _splitEnabled     = mutableStateOf(false)
     private val _assignedByToteId = mutableStateOf<Map<String, String>>(emptyMap())
@@ -87,23 +89,64 @@ class CheckoutViewModel : ViewModel() {
     private val _confirmationId   = mutableStateOf<String?>(null)
     private val _charityNames     = mutableStateOf<List<String>>(emptyList())
 
-    private val json = Json{ ignoreUnknownKeys = true }
+    /**
+     * The tote list grouped by company.
+     * Stored as mutableStateOf so that replacing the value is always visible
+     * to Compose regardless of how composables receive the parameter.
+     */
+    private val _scannedByCompany = mutableStateOf<Map<String, List<String>>>(emptyMap())
 
-    // Read-only public surface — Compose observes reads through mutableStateOf
-    val selectedCharity:  String              get() = _selectedCharity.value
-    val splitEnabled:     Boolean             get() = _splitEnabled.value
-    val assignedByToteId: Map<String, String> get() = _assignedByToteId.value
-    val contactDetails:   SavedContact        get() = _contactDetails.value
-    val reviewSummary:    ReviewSummary?      get() = _reviewSummary.value
-    val confirmationId:   String?             get() = _confirmationId.value
-    val charityNames:     List<String>        get() = _charityNames.value
+    // --- Public read surface ---
+    val selectedCharity:  String                    get() = _selectedCharity.value
+    val splitEnabled:     Boolean                   get() = _splitEnabled.value
+    val assignedByToteId: Map<String, String>       get() = _assignedByToteId.value
+    val contactDetails:   SavedContact              get() = _contactDetails.value
+    val reviewSummary:    ReviewSummary?            get() = _reviewSummary.value
+    val confirmationId:   String?                   get() = _confirmationId.value
+    val charityNames:     List<String>              get() = _charityNames.value
+    val scannedByCompany: Map<String, List<String>> get() = _scannedByCompany.value
 
-    val scannedByCompany = mutableStateMapOf<String, MutableList<String>>()
-    private val toteIds : MutableList<String> = mutableListOf()
-    /** Per-tote meal counts parsed from QR data; falls back to MEALS_PER_TOTE if absent. */
+    // Internal dedup + meal-count tracking (not observed by UI directly)
+    private val toteIds       : MutableList<String> = mutableListOf()
     private val mealsByToteId : MutableMap<String, Int> = mutableMapOf()
 
-    // --- Mutators -----------------------------------------------------------
+    // --- Private state helpers ---
+
+    /** Add a tote under [company], replacing the whole map value so Compose sees the change. */
+    private fun addToteToCompany(company: String, toteId: String) {
+        val next = _scannedByCompany.value.toMutableMap()
+        val list = next[company]?.toMutableList() ?: mutableListOf()
+        if (!list.contains(toteId)) {
+            list.add(toteId)
+            next[company] = list
+            _scannedByCompany.value = next
+        }
+    }
+
+    /** Move a tote from [fromCompany] to [toCompany], replacing the map value. */
+    private fun moveTote(fromCompany: String, toCompany: String, toteId: String) {
+        val next = _scannedByCompany.value.toMutableMap()
+        val from = next[fromCompany]?.toMutableList()
+        if (from != null) {
+            from.remove(toteId)
+            if (from.isEmpty()) next.remove(fromCompany) else next[fromCompany] = from
+        }
+        val to = next[toCompany]?.toMutableList() ?: mutableListOf()
+        if (!to.contains(toteId)) to.add(toteId)
+        next[toCompany] = to
+        _scannedByCompany.value = next
+    }
+
+    /** Remove a tote entry, replacing the map value. */
+    private fun removeToteFromState(company: String, toteId: String) {
+        val next = _scannedByCompany.value.toMutableMap()
+        val list = next[company]?.toMutableList() ?: return
+        list.remove(toteId)
+        if (list.isEmpty()) next.remove(company) else next[company] = list
+        _scannedByCompany.value = next
+    }
+
+    // --- Mutators ---
 
     fun setSelectedCharity(charity: String)          { _selectedCharity.value  = charity }
     fun setSplitEnabled(enabled: Boolean)             { _splitEnabled.value     = enabled }
@@ -111,15 +154,12 @@ class CheckoutViewModel : ViewModel() {
     fun setConfirmationId(id: String?)                { _confirmationId.value   = id }
 
     fun addManualToteId(numericId: String) {
-        // Normalise: strip whitespace and a leading '#'
         val normalizedId = numericId.trim().removePrefix("#").trim()
         if (normalizedId.isBlank()) return
         if (toteIds.contains(normalizedId)) return
         toteIds.add(normalizedId)
-        // Add to state immediately — visible in the list before the API responds
-        scannedByCompany.getOrPut("Unknown") { mutableStateListOf() }
-            .also { if (!it.contains(normalizedId)) it.add(normalizedId) }
-        // API lookup is only possible when the ID is a valid Int; skip silently otherwise
+        addToteToCompany("Unknown", normalizedId)
+        // API lookup requires a numeric ID; skip silently if not numeric
         val id = normalizedId.toIntOrNull() ?: return
         viewModelScope.launch {
             runCatching {
@@ -136,13 +176,7 @@ class CheckoutViewModel : ViewModel() {
                         container.ItemMovements?.firstOrNull { it.Warehouse?.WarehouseTypeId == 3 }
                     val company = itemMovement?.Organization?.Name?.uppercase() ?: "Unknown"
                     val toteId  = (container.ContainerId?.toInt() ?: id).toString()
-                    if (company != "Unknown") {
-                        scannedByCompany["Unknown"]?.remove(toteId)
-                        if (scannedByCompany["Unknown"]?.isEmpty() == true)
-                            scannedByCompany.remove("Unknown")
-                        val list = scannedByCompany.getOrPut(company) { mutableStateListOf() }
-                        if (!list.contains(toteId)) list.add(toteId)
-                    }
+                    if (company != "Unknown") moveTote("Unknown", company, toteId)
                 }
             }
         }
@@ -151,22 +185,16 @@ class CheckoutViewModel : ViewModel() {
     fun addScannedId(rawQr: String) {
         val parsed = parseQrCode(rawQr)
         if (parsed != null) {
-            // Full QR format — extract company and meals directly, no API call needed
             val toteId = parsed.toteId
             if (toteIds.contains(toteId)) return
             toteIds.add(toteId)
             mealsByToteId[toteId] = parsed.mealsInTote
-            val company = parsed.companyName.uppercase()
-            val list = scannedByCompany.getOrPut(company) { mutableStateListOf() }
-            if (!list.contains(toteId)) list.add(toteId)
+            addToteToCompany(parsed.companyName.uppercase(), toteId)
         } else {
-            // Fall back: treat as plain numeric barcode and look up via API
             val toteId = normalizeToToteId(rawQr)
             if (toteId.isBlank() || toteIds.contains(toteId)) return
             toteIds.add(toteId)
-            // Show immediately so the tote is visible before the API responds
-            scannedByCompany.getOrPut("Unknown") { mutableStateListOf() }
-                .also { if (!it.contains(toteId)) it.add(toteId) }
+            addToteToCompany("Unknown", toteId)
             val id = toteId.toIntOrNull() ?: return
             viewModelScope.launch {
                 runCatching {
@@ -183,13 +211,7 @@ class CheckoutViewModel : ViewModel() {
                             container.ItemMovements?.firstOrNull { it.Warehouse?.WarehouseTypeId == 3 }
                         val company      = itemMovement?.Organization?.Name?.uppercase() ?: "Unknown"
                         val actualToteId = (container.ContainerId?.toInt() ?: id).toString()
-                        if (company != "Unknown") {
-                            scannedByCompany["Unknown"]?.remove(actualToteId)
-                            if (scannedByCompany["Unknown"]?.isEmpty() == true)
-                                scannedByCompany.remove("Unknown")
-                            val list = scannedByCompany.getOrPut(company) { mutableStateListOf() }
-                            if (!list.contains(actualToteId)) list.add(actualToteId)
-                        }
+                        if (company != "Unknown") moveTote("Unknown", company, actualToteId)
                     }
                 }
             }
@@ -199,11 +221,16 @@ class CheckoutViewModel : ViewModel() {
     fun deleteScannedId(company: String, toteId: String) {
         toteIds.remove(toteId)
         mealsByToteId.remove(toteId)
-        scannedByCompany[company]?.remove(toteId)
-        if (scannedByCompany[company]?.isEmpty() == true) scannedByCompany.remove(company)
+        removeToteFromState(company, toteId)
     }
 
-    /** Fetches the charity list from the server and stores it as display names. */
+    fun removeScannedId(company: String, toteId: String) {
+        toteIds.remove(toteId)
+        mealsByToteId.remove(toteId)
+        removeToteFromState(company, toteId)
+    }
+
+    /** Fetches the charity list from the server. */
     fun loadCharities() {
         viewModelScope.launch {
             try {
@@ -218,58 +245,41 @@ class CheckoutViewModel : ViewModel() {
                     if (data != null) {
                         val organizations = json.decodeFromJsonElement<Array<Organization>>(data)
                         _charityNames.value =
-                            organizations.map { it.Name }
-                                .filter { it.isNotBlank() }
+                            organizations.map { it.Name }.filter { it.isNotBlank() }
                     }
                 }
-            } catch (_: Exception) {
-                // Leave charityNames empty; UI shows "Loading charities…"
-            }
+            } catch (_: Exception) { }
         }
     }
 
-    /** POSTs the completed checkout to the server. Navigates via [onSuccess] on 2xx. */
+    /** POSTs the completed checkout to the server. */
     fun submitCheckout(onSuccess: () -> Unit) {
         viewModelScope.launch {
             try {
                 val response = api.confirmCheckout(
                     TokenStore.bearerToken,
-                    ConfirmCheckoutRequest(sessionId = "")   // TODO: track server session ID
+                    ConfirmCheckoutRequest(sessionId = "")
                 )
                 if (response.isSuccessful) {
                     _confirmationId.value = response.body()?.confirmationId
                     onSuccess()
                 }
-            } catch (_: Exception) {
-                // Network failure — stay on review screen so the user can retry
-            }
+            } catch (_: Exception) { }
         }
     }
 
-    fun removeScannedId(company: String, toteId: String) {
-        toteIds.remove(toteId)
-        mealsByToteId.remove(toteId)
-        scannedByCompany[company]?.remove(toteId)
-        if (scannedByCompany[company]?.isEmpty() == true) scannedByCompany.remove(company)
-    }
-
-    /** Saves contact details and rebuilds the review summary in one step. */
     fun buildAndSetReviewSummary(contact: SavedContact) {
         _contactDetails.value = contact
         _reviewSummary.value  = buildReviewSummary(contact = contact)
     }
 
-    /**
-     * Rebuilds the review summary from current state (e.g. after editing
-     * charities from the review screen).
-     */
     fun rebuildReviewSummary() {
         _reviewSummary.value = buildReviewSummary(contact = _contactDetails.value)
     }
 
-    /** Resets all session state so the app is ready for the next checkout. */
+    /** Resets all session state. */
     fun reset() {
-        scannedByCompany.clear()
+        _scannedByCompany.value = emptyMap()
         toteIds.clear()
         mealsByToteId.clear()
         _assignedByToteId.value = emptyMap()
@@ -280,10 +290,10 @@ class CheckoutViewModel : ViewModel() {
         _contactDetails.value   = SavedContact()
     }
 
-    // --- Private helpers ----------------------------------------------------
+    // --- Private helpers ---
 
     private fun buildReviewSummary(contact: SavedContact): ReviewSummary {
-        val companies = scannedByCompany.entries.map { (company, totes) ->
+        val companies = _scannedByCompany.value.entries.map { (company, totes) ->
             val charitiesForCompany =
                 if (!_splitEnabled.value) {
                     listOf(_selectedCharity.value).filter { it != "Select" }
