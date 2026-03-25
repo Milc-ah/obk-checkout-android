@@ -6,7 +6,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.obkcheckout.Entities.Container
 import com.example.obkcheckout.Entities.Organization
-import com.google.gson.JsonObject
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.decodeFromString
@@ -14,10 +13,53 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
 
 /**
+ * Parsed fields from a tote QR code.
+ * Format: Company Name,Batch ID,Meals in batch,Tote ID,Meals in tote,Checked in date (UTC)
+ */
+internal data class ParsedQrCode(
+    val companyName: String,
+    val batchId: String,
+    val mealsInBatch: Int,
+    val toteId: String,
+    val mealsInTote: Int,
+    val checkedInDate: String
+)
+
+/**
+ * Tries to parse a raw QR string as the 6-field tote QR format.
+ * Attempts comma, pipe, semicolon, and tab as delimiters.
+ * Returns null if the string doesn't match the expected format.
+ */
+internal fun parseQrCode(raw: String): ParsedQrCode? {
+    val trimmed = raw.trim()
+    for (delimiter in listOf(",", "|", ";", "\t")) {
+        val parts = trimmed.split(delimiter)
+        if (parts.size == 6) {
+            val mealsInBatch = parts[2].trim().toIntOrNull() ?: continue
+            val toteId       = parts[3].trim()
+            val mealsInTote  = parts[4].trim().toIntOrNull() ?: continue
+            if (toteId.isBlank()) continue
+            return ParsedQrCode(
+                companyName   = parts[0].trim(),
+                batchId       = parts[1].trim(),
+                mealsInBatch  = mealsInBatch,
+                toteId        = toteId,
+                mealsInTote   = mealsInTote,
+                checkedInDate = parts[5].trim()
+            )
+        }
+    }
+    return null
+}
+
+/**
  * Normalises a raw QR / barcode string to a plain tote ID.
  * Exposed as internal so unit tests can verify it directly.
  */
 internal fun normalizeToToteId(rawValue: String): String {
+    // Try the full 6-field QR format first
+    parseQrCode(rawValue)?.let { return it.toteId }
+    // Fall back to stripping leading "#" and taking leading digits
     val trimmed = rawValue.trim()
     val cleaned = trimmed.removePrefix("#").trim()
     val digits  = cleaned.takeWhile { it.isDigit() }
@@ -30,9 +72,6 @@ internal fun normalizeToToteId(rawValue: String): String {
  *
  * State is exposed via read-only properties backed by [mutableStateOf] so
  * Compose can observe changes. Writes go through the explicit mutator functions.
- *
- * BACKEND: Replace [PlaceholderCompanyResolver] with a real API lookup
- * once the endpoint is available.
  */
 class CheckoutViewModel : ViewModel() {
 
@@ -60,6 +99,8 @@ class CheckoutViewModel : ViewModel() {
 
     val scannedByCompany = mutableStateMapOf<String, MutableList<String>>()
     private val toteIds : MutableList<String> = mutableListOf()
+    /** Per-tote meal counts parsed from QR data; falls back to MEALS_PER_TOTE if absent. */
+    private val mealsByToteId : MutableMap<String, Int> = mutableMapOf()
 
     // --- Mutators -----------------------------------------------------------
 
@@ -71,14 +112,14 @@ class CheckoutViewModel : ViewModel() {
     fun addManualToteId(numericId: String) {
         val trimmed = numericId.trim().removePrefix("#").trim()
         val id = trimmed.toIntOrNull() ?: return
+        val normalizedId = id.toString()
         viewModelScope.launch {
-            if (toteIds.contains(trimmed)) return@launch
-            toteIds.add(trimmed)
+            if (toteIds.contains(normalizedId)) return@launch
+            toteIds.add(normalizedId)
             val parameters = mapOf("include" to "ItemMovements(Warehouse,Organization)")
             val response = api.getRecord(
                 TokenStore.bearerToken,
-                Container.Companion::class.java.name.split('.', '$')
-                    .takeWhile { it != "Companion" }.last(),
+                Container::class.simpleName ?: "Container",
                 id,
                 parameters
             )
@@ -89,63 +130,58 @@ class CheckoutViewModel : ViewModel() {
                 if (itemMovement != null) {
                     val key = itemMovement.Organization?.Name?.uppercase() ?: "Unknown"
                     val list = scannedByCompany.getOrPut(key) { mutableListOf() }
-                    val toteId = (container.ContainerId?.toInt() ?: 0).toString()
+                    val toteId = (container.ContainerId?.toInt() ?: id).toString()
                     if (!list.contains(toteId)) list.add(toteId)
                 }
             }
         }
     }
 
-    fun addScannedId(toteQRCode: String) {
+    fun addScannedId(rawQr: String) {
         viewModelScope.launch {
-            // Tote IDs on this system are numeric strings — convert for the API path.
-
-            if(!toteIds.contains(toteQRCode)) {
-                toteIds.add(toteQRCode);
-                var container: Container
-
-                if (toteQRCode.isNotEmpty()) {
-                    container = json.decodeFromString<Container>(toteQRCode)
-
-                    val parameters = mapOf("include" to "ItemMovements(Warehouse,Organization)")
-
-                    val response = api.getRecord(
-                        TokenStore.bearerToken,
-                        Container.Companion::class.java.name.split('.', '$')
-                            .takeWhile { it != "Companion" }.last(),
-                        (container.ContainerId ?: 0),
-                        parameters
-                    )
-
-                    if (response.isSuccessful) {
-                        container = json.decodeFromString<Container>(response.body() ?: "")
-
-                        val itemMovement =
-                            container.ItemMovements?.firstOrNull { it.Warehouse?.WarehouseTypeId == 3 }
-
-                        if (itemMovement != null) {
-                            val key = itemMovement.Organization?.Name?.uppercase() ?: "Unknow"
-                            val list = scannedByCompany.getOrPut(key) { mutableListOf() }
-                            val toteId = (container.ContainerId?.toInt() ?: 0).toString();
-                            if (!list.contains(toteId)) list.add(toteId)
-                        } else {
-                        }
-                    } else {
+            val parsed = parseQrCode(rawQr)
+            if (parsed != null) {
+                // Full QR format — extract company and meals directly, no API call needed
+                val toteId = parsed.toteId
+                if (toteIds.contains(toteId)) return@launch
+                toteIds.add(toteId)
+                mealsByToteId[toteId] = parsed.mealsInTote
+                val company = parsed.companyName.uppercase()
+                val list = scannedByCompany.getOrPut(company) { mutableListOf() }
+                if (!list.contains(toteId)) list.add(toteId)
+            } else {
+                // Fall back: treat as plain numeric barcode and look up via API
+                val toteId = normalizeToToteId(rawQr)
+                if (toteId.isBlank() || toteIds.contains(toteId)) return@launch
+                toteIds.add(toteId)
+                val id = toteId.toIntOrNull() ?: return@launch
+                val parameters = mapOf("include" to "ItemMovements(Warehouse,Organization)")
+                val response = api.getRecord(
+                    TokenStore.bearerToken,
+                    Container::class.simpleName ?: "Container",
+                    id,
+                    parameters
+                )
+                if (response.isSuccessful) {
+                    val container = json.decodeFromString<Container>(response.body() ?: "")
+                    val itemMovement =
+                        container.ItemMovements?.firstOrNull { it.Warehouse?.WarehouseTypeId == 3 }
+                    if (itemMovement != null) {
+                        val key = itemMovement.Organization?.Name?.uppercase() ?: "Unknown"
+                        val list = scannedByCompany.getOrPut(key) { mutableListOf() }
+                        val actualToteId = (container.ContainerId?.toInt() ?: id).toString()
+                        if (!list.contains(actualToteId)) list.add(actualToteId)
                     }
-                } else {
                 }
             }
-            else { }
         }
     }
 
-    fun deleteScannedId(company: String, toteId: String){
-        if(toteIds.contains(toteId)) {
-            toteIds.remove(toteId)
-            scannedByCompany[company]?.remove(toteId)
-            if (scannedByCompany[company]?.isEmpty() == true) scannedByCompany.remove(company)
-        }
-        else { }
+    fun deleteScannedId(company: String, toteId: String) {
+        toteIds.remove(toteId)
+        mealsByToteId.remove(toteId)
+        scannedByCompany[company]?.remove(toteId)
+        if (scannedByCompany[company]?.isEmpty() == true) scannedByCompany.remove(company)
     }
 
     /** Fetches the charity list from the server and stores it as display names. */
@@ -153,24 +189,19 @@ class CheckoutViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val parameters = mapOf("where" to "OrganizationTypeId=4")
-
                 val response = api.getRecords(
                     TokenStore.bearerToken,
-                    Organization.Companion::class.java.name.split('.', '$').takeWhile{it != "Companion"}.last(),
+                    Organization::class.simpleName ?: "Organization",
                     parameters
                 )
-
                 if (response.isSuccessful) {
-                    val data = response.body()?.data;
-
-                    if(data != null){
-                        var organization = json.decodeFromJsonElement<Array<Organization>>(data)
+                    val data = response.body()?.data
+                    if (data != null) {
+                        val organizations = json.decodeFromJsonElement<Array<Organization>>(data)
                         _charityNames.value =
-                            organization?.map { it.Name }
-                            ?.filter { it.isNotBlank() }
-                            ?: emptyList()
+                            organizations.map { it.Name }
+                                .filter { it.isNotBlank() }
                     }
-                    else { }
                 }
             } catch (_: Exception) {
                 // Leave charityNames empty; UI shows "Loading charities…"
@@ -197,6 +228,8 @@ class CheckoutViewModel : ViewModel() {
     }
 
     fun removeScannedId(company: String, toteId: String) {
+        toteIds.remove(toteId)
+        mealsByToteId.remove(toteId)
         scannedByCompany[company]?.remove(toteId)
         if (scannedByCompany[company]?.isEmpty() == true) scannedByCompany.remove(company)
     }
@@ -218,6 +251,8 @@ class CheckoutViewModel : ViewModel() {
     /** Resets all session state so the app is ready for the next checkout. */
     fun reset() {
         scannedByCompany.clear()
+        toteIds.clear()
+        mealsByToteId.clear()
         _assignedByToteId.value = emptyMap()
         _splitEnabled.value     = false
         _selectedCharity.value  = "Select"
@@ -242,7 +277,7 @@ class CheckoutViewModel : ViewModel() {
                 company    = company,
                 toteIds    = totes.toList(),
                 charities  = charitiesForCompany,
-                mealsTotal = totes.size * MEALS_PER_TOTE
+                mealsTotal = totes.sumOf { mealsByToteId[it] ?: MEALS_PER_TOTE }
             )
         }
         return ReviewSummary(
@@ -252,4 +287,3 @@ class CheckoutViewModel : ViewModel() {
         )
     }
 }
-

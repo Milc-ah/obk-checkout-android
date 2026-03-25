@@ -92,7 +92,7 @@ fun ContinuousScannerScreen(
                     lastScanAt    = now
 
                     if (toteId.isNotBlank() && allTotes.none { it.second == toteId }) {
-                        onScannedTote(toteId)
+                        onScannedTote(raw)
                     }
                 },
                 onBack = onBack

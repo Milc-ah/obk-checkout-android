@@ -147,7 +147,7 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
                 onBack           = { navController.popBackStack() },
                 onSplitByCharity = {
                     vm.setSplitEnabled(true)
-                    navController.navigate("splitByCharity")
+                    navController.navigate("splitByCharity?returnToReview=$returnToReview")
                 },
                 onContinue = {
                     vm.setSplitEnabled(false)
@@ -162,7 +162,9 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
             )
         }
 
-        composable("splitByCharity") {
+        composable(route = "splitByCharity?returnToReview={returnToReview}") { backStackEntry ->
+            val returnToReview =
+                backStackEntry.arguments?.getString("returnToReview")?.toBoolean() ?: false
             val allTotes = vm.scannedByCompany.values.flatten().distinct().sorted()
             SplitByCharityScreen(
                 toteIds   = allTotes,
@@ -171,7 +173,12 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
                 onContinue = { assignedMap ->
                     vm.setSplitEnabled(true)
                     vm.setAssignedByToteId(assignedMap)
-                    navController.navigate("contactDetails")
+                    if (returnToReview) {
+                        vm.rebuildReviewSummary()
+                        navController.popBackStack("review", inclusive = false)
+                    } else {
+                        navController.navigate("contactDetails")
+                    }
                 }
             )
         }
@@ -195,7 +202,7 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
                     onBack          = { navController.popBackStack() },
                     onEditCharities = {
                         if (vm.splitEnabled) {
-                            navController.navigate("splitByCharity")
+                            navController.navigate("splitByCharity?returnToReview=true")
                         } else {
                             navController.navigate("charityDestination?returnToReview=true")
                         }
