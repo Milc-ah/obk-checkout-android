@@ -40,11 +40,16 @@ import androidx.compose.ui.unit.sp
 fun SplitByCharityScreen(
     toteIds: List<String>,
     charities: List<String>, // Backend should supply this list (e.g., from API/repository)
+    initialAssignments: Map<String, String>,
     onBack: () -> Unit,
     onContinue: (assignedByToteId: Map<String, String>) -> Unit
 ) {
     val listState = rememberLazyListState()
-    val assigned  = remember { mutableStateMapOf<String, String>() }
+    val assigned = remember(toteIds, initialAssignments) {
+        mutableStateMapOf<String, String>().apply {
+            putAll(initialAssignments.filterKeys { toteIds.contains(it) })
+        }
+    }
 
     val displayCharities = remember(charities) {
         val cleaned = charities

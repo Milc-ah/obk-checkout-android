@@ -117,6 +117,24 @@ fun ThankYouScreen(
                         fontWeight = FontWeight.ExtraBold,
                         color = Color.Black
                     )
+
+                    if (company.toteAssignments.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        company.toteAssignments.forEach { assignment ->
+                            Text(
+                                text = buildString {
+                                    append("Tote ")
+                                    append(assignment.toteId)
+                                    if (assignment.charity.isNotBlank()) {
+                                        append(" -> ")
+                                        append(assignment.charity)
+                                    }
+                                },
+                                fontSize = 14.sp,
+                                color = Color.DarkGray
+                            )
+                        }
+                    }
                 }
             }
             Spacer(Modifier.height(14.dp))

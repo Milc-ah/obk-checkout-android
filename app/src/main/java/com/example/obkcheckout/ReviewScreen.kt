@@ -129,14 +129,20 @@ private fun CompanyReviewCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                company.toteIds.forEach { tote ->
+                company.toteAssignments.forEach { assignment ->
                     Box(
                         modifier = Modifier
                             .background(MaterialTheme.colorScheme.secondary, RoundedCornerShape(6.dp))
                             .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         Text(
-                            text = tote.ifBlank { "Tote" },
+                            text = buildString {
+                                append(assignment.toteId.ifBlank { "Tote" })
+                                if (assignment.charity.isNotBlank()) {
+                                    append(" -> ")
+                                    append(assignment.charity)
+                                }
+                            },
                             color = MaterialTheme.colorScheme.onSecondary,
                             fontWeight = FontWeight.Bold
                         )

@@ -8,9 +8,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.core.content.ContextCompat
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,7 +23,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material3.Button
@@ -54,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -76,7 +76,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** Font scale helper (~20% bigger everywhere) */
 private fun fs(base: Int) = (base * 1.2f).sp
 
 @Composable
@@ -84,7 +83,6 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
     val navController = rememberNavController()
 
     NavHost(navController = navController, startDestination = "login") {
-
         composable("login") {
             LoginScreen(
                 onLoginSuccess = {
@@ -100,11 +98,11 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
         composable("start") {
             ToteCheckoutStartScreen(
                 scannedByCompany = vm.scannedByCompany,
-                onScanClicked    = { navController.navigate("scanner") },
-                onManualAdd      = { toteId -> vm.addManualToteId(toteId) },
-                onRemove         = { company, id -> vm.removeScannedId(company, id) },
-                onProceed        = { navController.navigate("confirm") },
-                onLogout         = {
+                onScanClicked = { navController.navigate("scanner") },
+                onManualAdd = { toteId -> vm.addTote(toteId) },
+                onRemove = { company, id -> vm.removeScannedId(company, id) },
+                onProceed = { navController.navigate("confirm") },
+                onLogout = {
                     TokenStore.clear()
                     vm.reset()
                     navController.navigate("login") {
@@ -116,34 +114,32 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
         }
 
         composable("scanner") {
-            // Invert scannedByCompany so each toteId maps to its company name.
-            // This is derived locally from the same state the VM already holds.
             val companyByToteId = vm.scannedByCompany
                 .flatMap { (company, totes) -> totes.map { it to company } }
                 .toMap()
 
             ContinuousScannerScreen(
                 scannedByCompany = vm.scannedByCompany,
-                companyByToteId  = companyByToteId,
-                onScannedTote    = { toteId -> vm.addScannedId(toteId) },
-                onManualToteId   = { toteId -> vm.addManualToteId(toteId) },
-                onRemoveTote     = { company, toteId -> vm.removeScannedId(company, toteId) },
-                onDone           = { navController.navigate("confirm") },
-                onBack           = { navController.popBackStack() }
+                companyByToteId = companyByToteId,
+                onScannedTote = { toteId -> vm.addTote(toteId) },
+                onManualToteId = { toteId -> vm.addTote(toteId) },
+                onRemoveTote = { company, toteId -> vm.removeScannedId(company, toteId) },
+                onDone = { navController.navigate("confirm") },
+                onBack = { navController.popBackStack() }
             )
         }
 
         composable("confirm") {
             ConfirmScreen(
                 scannedByCompany = vm.scannedByCompany,
-                onRemove         = { company, id -> vm.removeScannedId(company, id) },
-                onAddMore        = { navController.navigate("scanner") },
-                onBack           = { navController.popBackStack() },
+                onRemove = { company, id -> vm.removeScannedId(company, id) },
+                onAddMore = { navController.navigate("scanner") },
+                onBack = { navController.popBackStack() },
                 onSplitByCharity = {
                     vm.setSplitEnabled(true)
                     navController.navigate("splitByCharity?returnToReview=false")
                 },
-                onProceed        = { navController.navigate("charityDestination?returnToReview=false") }
+                onProceed = { navController.navigate("charityDestination?returnToReview=false") }
             )
         }
 
@@ -152,10 +148,10 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
                 backStackEntry.arguments?.getString("returnToReview")?.toBoolean() ?: false
 
             CharityDestinationScreen(
-                selectedCharity  = vm.selectedCharity,
-                charities        = vm.charityNames,
+                selectedCharity = vm.selectedCharity,
+                charities = vm.charityNames,
                 onCharitySelected = { vm.setSelectedCharity(it) },
-                onBack           = { navController.popBackStack() },
+                onBack = { navController.popBackStack() },
                 onSplitByCharity = {
                     vm.setSplitEnabled(true)
                     navController.navigate("splitByCharity?returnToReview=$returnToReview")
@@ -177,10 +173,12 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
             val returnToReview =
                 backStackEntry.arguments?.getString("returnToReview")?.toBoolean() ?: false
             val allTotes = vm.scannedByCompany.values.flatten().distinct().sorted()
+
             SplitByCharityScreen(
-                toteIds   = allTotes,
+                toteIds = allTotes,
                 charities = vm.charityNames,
-                onBack    = { navController.popBackStack() },
+                initialAssignments = vm.assignedByToteId,
+                onBack = { navController.popBackStack() },
                 onContinue = { assignedMap ->
                     vm.setSplitEnabled(true)
                     vm.setAssignedByToteId(assignedMap)
@@ -197,8 +195,8 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
         composable("contactDetails") {
             ContactDetailsScreen(
                 initialContact = vm.contactDetails,
-                onBack         = { navController.popBackStack() },
-                onContinue     = { savedContact ->
+                onBack = { navController.popBackStack() },
+                onContinue = { savedContact ->
                     vm.buildAndSetReviewSummary(savedContact)
                     navController.navigate("review")
                 }
@@ -209,8 +207,8 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
             val summary: ReviewSummary? = vm.reviewSummary
             if (summary != null) {
                 ReviewScreen(
-                    summary         = summary,
-                    onBack          = { navController.popBackStack() },
+                    summary = summary,
+                    onBack = { navController.popBackStack() },
                     onEditCharities = {
                         if (vm.splitEnabled) {
                             navController.navigate("splitByCharity?returnToReview=true")
@@ -219,7 +217,7 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
                         }
                     },
                     onEditContact = { navController.navigate("contactDetails") },
-                    onContinue    = {
+                    onContinue = {
                         vm.submitCheckout {
                             navController.navigate("thankYou")
                         }
@@ -243,11 +241,11 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
             val summary: ReviewSummary? = vm.reviewSummary
             if (summary != null) {
                 ThankYouScreen(
-                    confirmationId  = vm.confirmationId,
+                    confirmationId = vm.confirmationId,
                     mealsGrandTotal = summary.mealsGrandTotal,
-                    companies       = summary.companies,
-                    contactName     = summary.contact.fullName,
-                    onFinish        = {
+                    companies = summary.companies,
+                    contactName = summary.contact.fullName,
+                    onFinish = {
                         vm.reset()
                         navController.navigate("start") {
                             popUpTo("start") { inclusive = true }
@@ -267,10 +265,6 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Screen composables that live in MainActivity
-// ---------------------------------------------------------------------------
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ToteCheckoutStartScreen(
@@ -283,7 +277,7 @@ private fun ToteCheckoutStartScreen(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var toteId by remember { mutableStateOf("") }
-    var error  by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -291,17 +285,14 @@ private fun ToteCheckoutStartScreen(
 
     fun launchScanner() {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                PackageManager.PERMISSION_GRANTED
-        if (granted) onScanClicked()
-        else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            PackageManager.PERMISSION_GRANTED
+        if (granted) onScanClicked() else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
-    val green   = MaterialTheme.colorScheme.primary
+    val green = MaterialTheme.colorScheme.primary
     val lightBg = MaterialTheme.colorScheme.primaryContainer
 
     Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
-
-        // Logo + title (fixed at top)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -323,7 +314,6 @@ private fun ToteCheckoutStartScreen(
             )
         }
 
-        // Scrollable card — form + live tote list
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -443,7 +433,6 @@ private fun ToteCheckoutStartScreen(
                 )
             }
 
-            // Live tote list — appears as soon as totes are added
             if (scannedByCompany.isNotEmpty()) {
                 Spacer(Modifier.height(24.dp))
                 Divider()
@@ -508,7 +497,6 @@ private fun ConfirmScreen(
     val green = MaterialTheme.colorScheme.primary
 
     Column(modifier = Modifier.fillMaxSize()) {
-
         OBKHeaderBarWithBack(onBack = onBack)
 
         Column(

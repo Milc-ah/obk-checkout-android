@@ -16,11 +16,23 @@ data class SavedContact(
 data class CompanySummary(
     val company: String,
     val toteIds: List<String>,
+    val toteAssignments: List<ToteCharitySummary>,
     val charities: List<String>,
     val mealsTotal: Int
 )
 
+data class ToteCharitySummary(
+    val toteId: String,
+    val charity: String
+)
+
 data class ReviewSummary(
+    val companies: List<CompanySummary>,
+    val contact: SavedContact,
+    val mealsGrandTotal: Int
+)
+
+data class FinalCheckoutPayload(
     val companies: List<CompanySummary>,
     val contact: SavedContact,
     val mealsGrandTotal: Int
