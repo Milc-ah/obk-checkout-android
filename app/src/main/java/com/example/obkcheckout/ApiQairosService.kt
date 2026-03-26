@@ -40,13 +40,13 @@ interface ApiQairosService {
         @Header("Authorization") token: String,
         @Path("className") className: String,
         @QueryMap parameters: Map<String, String>?
-    ): Response<com.example.obkcheckout.Utility.Response>
+    ): Response<String>
 
     // -------------------------------------------------------------------------
     // Checkout — submit completed session
     // -------------------------------------------------------------------------
 
-    @POST("api/checkout/confirm")
+    @POST("checkout/confirm")
     suspend fun confirmCheckout(
         @Header("Authorization") token: String,
         @Body request: ConfirmCheckoutRequest

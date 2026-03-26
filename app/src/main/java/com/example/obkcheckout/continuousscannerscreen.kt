@@ -2,7 +2,16 @@ package com.example.obkcheckout
 
 import android.os.SystemClock
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -17,12 +26,14 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -37,7 +48,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun ContinuousScannerScreen(
     scannedByCompany: Map<String, List<String>>,
-    companyByToteId: Map<String, String>,
+    toteErrorMessage: String?,
+    onDismissToteError: () -> Unit,
     onScannedTote: (String) -> Unit,
     onManualToteId: (String) -> Unit,
     onRemoveTote: (company: String, toteId: String) -> Unit,
@@ -45,20 +57,20 @@ fun ContinuousScannerScreen(
     onBack: () -> Unit
 ) {
     val listState = rememberLazyListState()
-    val scope     = rememberCoroutineScope()
-    val green     = MaterialTheme.colorScheme.primary
+    val scope = rememberCoroutineScope()
+    val green = MaterialTheme.colorScheme.primary
 
     val allTotes = scannedByCompany.entries
-        .flatMap { entry -> entry.value.map { toteId -> entry.key to toteId } }
+        .flatMap { (company, toteIds) -> toteIds.map { toteId -> company to toteId } }
         .distinctBy { it.second }
         .sortedBy { it.second }
 
     var pendingDelete by remember { mutableStateOf<Pair<String, String>?>(null) }
-
-    var lastScanAt    by remember { mutableStateOf(0L) }
+    var lastScanAt by remember { mutableStateOf(0L) }
     var lastScanValue by remember { mutableStateOf("") }
-    var manualInput   by remember { mutableStateOf("") }
-    var lastAddedId   by remember { mutableStateOf<String?>(null) }
+    var manualInput by remember { mutableStateOf("") }
+    var manualError by remember { mutableStateOf<String?>(null) }
+    var lastAddedId by remember { mutableStateOf<String?>(null) }
 
     val showGoTop by remember {
         derivedStateOf {
@@ -69,12 +81,18 @@ fun ContinuousScannerScreen(
         }
     }
 
+    LaunchedEffect(allTotes.size) {
+        if (toteErrorMessage == null) {
+            manualInput = ""
+            manualError = null
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // Top half: camera
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -82,14 +100,13 @@ fun ContinuousScannerScreen(
         ) {
             RealScannerRoute(
                 onScanned = { raw ->
-                    val now    = SystemClock.elapsedRealtime()
+                    val now = SystemClock.elapsedRealtime()
                     val toteId = normalizeToToteId(raw)
-
-                    val isRepeat = (toteId == lastScanValue) && (now - lastScanAt) < 900
+                    val isRepeat = toteId == lastScanValue && (now - lastScanAt) < 900
                     if (isRepeat) return@RealScannerRoute
 
                     lastScanValue = toteId
-                    lastScanAt    = now
+                    lastScanAt = now
 
                     if (toteId.isNotBlank() && allTotes.none { it.second == toteId }) {
                         onScannedTote(raw)
@@ -100,7 +117,6 @@ fun ContinuousScannerScreen(
             )
         }
 
-        // Bottom half: list + finish button
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -119,18 +135,26 @@ fun ContinuousScannerScreen(
                 ) {
                     OutlinedTextField(
                         value = manualInput,
-                        onValueChange = { manualInput = it },
+                        onValueChange = {
+                            manualInput = it
+                            if (manualError != null) manualError = null
+                            if (toteErrorMessage != null) onDismissToteError()
+                        },
                         modifier = Modifier.weight(1f),
                         placeholder = { Text("Enter Tote ID manually") },
-                        singleLine = true
+                        singleLine = true,
+                        isError = manualError != null
                     )
                     Button(
                         onClick = {
                             val trimmed = manualInput.trim()
-                            if (trimmed.isNotEmpty()) {
+                            if (trimmed.isBlank()) {
+                                manualError = "Please enter a Tote ID."
+                            } else {
                                 onManualToteId(trimmed)
-                                lastAddedId = trimmed.removePrefix("#").trim()
+                                lastAddedId = normalizeToToteId(trimmed)
                                 manualInput = ""
+                                manualError = null
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = green),
@@ -140,10 +164,28 @@ fun ContinuousScannerScreen(
                     }
                 }
 
-                if (lastAddedId != null) {
+                manualError?.let {
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "Last added: #$lastAddedId",
+                        text = it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                toteErrorMessage?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                lastAddedId?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "Last added: #$it",
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold,
                         style = MaterialTheme.typography.bodyMedium
@@ -158,7 +200,7 @@ fun ContinuousScannerScreen(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "Scroll to review. Tap × to remove.",
+                    text = "Scroll to review. Tap x to remove.",
                     color = Color.Gray,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -174,12 +216,9 @@ fun ContinuousScannerScreen(
                     contentPadding = PaddingValues(bottom = 18.dp)
                 ) {
                     if (allTotes.isEmpty()) {
-                        item { Text("Scan a tote to start…", color = Color.Gray) }
+                        item { Text("Scan a tote to start...", color = Color.Gray) }
                     } else {
                         items(allTotes, key = { it.second }) { (company, toteId) ->
-                            val displayCompany =
-                                companyByToteId[toteId]?.uppercase() ?: company.uppercase()
-
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -193,7 +232,7 @@ fun ContinuousScannerScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(text = "#$toteId", fontWeight = FontWeight.Bold)
                                     Text(
-                                        text = displayCompany,
+                                        text = company.ifBlank { "UNKNOWN" },
                                         color = Color.Gray,
                                         style = MaterialTheme.typography.bodySmall
                                     )
@@ -225,6 +264,18 @@ fun ContinuousScannerScreen(
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                 }
+
+                Spacer(Modifier.height(10.dp))
+
+                OutlinedButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Cancel")
+                }
             }
 
             if (showGoTop) {
@@ -233,7 +284,7 @@ fun ContinuousScannerScreen(
                     containerColor = green,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(end = 16.dp, bottom = 92.dp)
+                        .padding(end = 16.dp, bottom = 150.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowUp,
@@ -248,17 +299,21 @@ fun ContinuousScannerScreen(
             AlertDialog(
                 onDismissRequest = { pendingDelete = null },
                 title = { Text("Remove tote?") },
-                text  = { Text("Do you want to remove #$toteId?") },
+                text = { Text("Do you want to remove #$toteId?") },
                 confirmButton = {
                     TextButton(
                         onClick = {
                             onRemoveTote(company, toteId)
                             pendingDelete = null
                         }
-                    ) { Text("Yes, remove") }
+                    ) {
+                        Text("Yes, remove")
+                    }
                 },
                 dismissButton = {
-                    TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+                    TextButton(onClick = { pendingDelete = null }) {
+                        Text("Cancel")
+                    }
                 }
             )
         }

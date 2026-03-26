@@ -4,8 +4,6 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.util.Log
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -14,23 +12,34 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,34 +49,22 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * Real camera scanner UI:
- * - Camera continuously scans and calls onScanned(rawValue)
- * - UI provides a frame overlay + back / close
- *
- * Integration notes:
- * - onScanned forwards the raw QR string to the checkout flow (caller parses toteId).
- * - Caller decides whether to navigate immediately or keep scanning.
- */
 @Composable
 fun RealScannerRoute(
     onScanned: (String) -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    var hasCameraPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
-                == PackageManager.PERMISSION_GRANTED
-        )
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted -> hasCameraPermission = granted }
+    val hasCameraPermission = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.CAMERA
+    ) == PackageManager.PERMISSION_GRANTED
 
     if (!hasCameraPermission) {
         Box(
-            modifier = Modifier.fillMaxSize().background(Color.Black),
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -76,15 +73,12 @@ fun RealScannerRoute(
                 modifier = Modifier.padding(32.dp)
             ) {
                 Text(
-                    text = "Camera permission is required to scan totes.",
+                    text = "Camera permission is required to scan QR codes.",
                     color = Color.White,
                     textAlign = TextAlign.Center
                 )
-                Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
-                    Text("Grant Permission")
-                }
                 Text(
-                    text = "← Back",
+                    text = "Back",
                     color = Color.White,
                     modifier = Modifier
                         .background(Color(0x33FFFFFF), RoundedCornerShape(999.dp))
@@ -96,11 +90,13 @@ fun RealScannerRoute(
         return
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
         CameraPreviewWithAnalyzer(onBarcode = onScanned)
 
-        // Scan frame overlay
         Box(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
@@ -126,7 +122,6 @@ fun RealScannerRoute(
             )
         }
 
-        // Top bar (back + close)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -135,7 +130,7 @@ fun RealScannerRoute(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = "← Back",
+                text = "Back",
                 color = Color.White,
                 modifier = Modifier
                     .background(Color(0x33000000), RoundedCornerShape(999.dp))
@@ -160,20 +155,27 @@ fun RealScannerRoute(
 @SuppressLint("UnsafeOptInUsageError")
 @Composable
 private fun CameraPreviewWithAnalyzer(onBarcode: (String) -> Unit) {
-    val context        = LocalContext.current
+    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val isProcessing = remember { AtomicBoolean(false) }
+    var lastValue by remember { mutableStateOf<String?>(null) }
+    var lastEmitAtMs by remember { mutableLongStateOf(0L) }
+    val minIntervalMs = 900L
+    val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
 
-    val isProcessing   = remember { AtomicBoolean(false) }
-    var lastValue      by remember { mutableStateOf<String?>(null) }
-    var lastEmitAtMs   by remember { mutableLongStateOf(0L) }
-    val minIntervalMs  = 900L
+    DisposableEffect(lifecycleOwner, cameraProviderFuture) {
+        onDispose {
+            runCatching {
+                cameraProviderFuture.get().unbindAll()
+            }
+        }
+    }
 
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { ctx ->
             val previewView = PreviewView(ctx)
 
-            val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
             cameraProviderFuture.addListener({
                 val cameraProvider = cameraProviderFuture.get()
 
@@ -189,9 +191,15 @@ private fun CameraPreviewWithAnalyzer(onBarcode: (String) -> Unit) {
 
                 analysis.setAnalyzer(ContextCompat.getMainExecutor(ctx)) { imageProxy ->
                     val mediaImage = imageProxy.image
-                    if (mediaImage == null) { imageProxy.close(); return@setAnalyzer }
+                    if (mediaImage == null) {
+                        imageProxy.close()
+                        return@setAnalyzer
+                    }
 
-                    if (isProcessing.getAndSet(true)) { imageProxy.close(); return@setAnalyzer }
+                    if (isProcessing.getAndSet(true)) {
+                        imageProxy.close()
+                        return@setAnalyzer
+                    }
 
                     val inputImage = InputImage.fromMediaImage(
                         mediaImage,
@@ -202,17 +210,19 @@ private fun CameraPreviewWithAnalyzer(onBarcode: (String) -> Unit) {
                         .addOnSuccessListener { barcodes ->
                             val value = barcodes.firstOrNull()?.rawValue?.trim()
                             if (!value.isNullOrEmpty()) {
-                                val now          = System.currentTimeMillis()
-                                val isDifferent  = value != lastValue
+                                val now = System.currentTimeMillis()
+                                val isDifferent = value != lastValue
                                 val isPastCooldown = (now - lastEmitAtMs) >= minIntervalMs
                                 if (isDifferent || isPastCooldown) {
-                                    lastValue    = value
+                                    lastValue = value
                                     lastEmitAtMs = now
                                     onBarcode(value)
                                 }
                             }
                         }
-                        .addOnFailureListener { e -> Log.e("OBKScanner", "Scan failed", e) }
+                        .addOnFailureListener { error ->
+                            Log.e("OBKScanner", "Scan failed", error)
+                        }
                         .addOnCompleteListener {
                             isProcessing.set(false)
                             imageProxy.close()

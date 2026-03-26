@@ -1,6 +1,5 @@
 package com.example.obkcheckout
 
-import android.util.Log
 import java.security.MessageDigest
 
 @OptIn(ExperimentalStdlibApi::class)
@@ -23,14 +22,12 @@ class Authentication(private val api: ApiQairosService) {
     suspend fun login(userEmail: String, password: String?): String {
         return try {
             val responseChallenge = api.login(userEmail, null)
-            Log.d("Authentication", "STEP 1 code: ${responseChallenge.code()}")
 
             val challenge = when (responseChallenge.code()) {
                 401 -> responseChallenge.errorBody()?.string()
                 200 -> responseChallenge.body()
                 else -> null
             }
-            Log.d("Authentication", "STEP 1 challenge: $challenge")
 
             if (challenge.isNullOrBlank()) {
                 return "Login failed (no challenge received)"
@@ -44,12 +41,8 @@ class Authentication(private val api: ApiQairosService) {
             }
 
             val solved = solveUserChallenge(challenge, password ?: "")
-            Log.d("Authentication", "STEP 1 solved: $solved")
 
             val responseToken = api.login(userEmail, solved)
-            Log.d("Authentication", "STEP 2 code: ${responseToken.code()}")
-            Log.d("Authentication", "STEP 2 body: ${responseToken.body()}")
-            Log.d("Authentication", "STEP 2 error: ${responseToken.errorBody()?.string()}")
 
             when {
                 responseToken.isSuccessful && !responseToken.body().isNullOrBlank() -> {
@@ -60,7 +53,6 @@ class Authentication(private val api: ApiQairosService) {
                 else -> "Login failed (code ${responseToken.code()})"
             }
         } catch (e: Exception) {
-            Log.e("Authentication", "Login exception", e)
             "Network error: ${e.message}"
         }
     }

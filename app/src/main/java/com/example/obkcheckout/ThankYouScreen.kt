@@ -2,9 +2,22 @@ package com.example.obkcheckout
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -15,149 +28,188 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/**
- * Thank-you screen shown after backend confirms checkout.
- * confirmationId + totals should come from ConfirmCheckoutResponse.
- */
 @Composable
 fun ThankYouScreen(
     confirmationId: String?,
     mealsGrandTotal: Int,
     companies: List<CompanySummary>,
-    contactName: String,
+    contact: SavedContact,
     onFinish: () -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .background(Color(0xFFF5F7F1))
+            .padding(horizontal = 20.dp, vertical = 18.dp)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(modifier = Modifier.fillMaxWidth()) {
             Image(
                 painter = painterResource(id = R.drawable.obklogo2),
                 contentDescription = "OBK Logo",
-                modifier = Modifier.height(38.dp),
+                modifier = Modifier.height(40.dp),
                 contentScale = ContentScale.Fit
             )
         }
 
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(22.dp))
 
         Text(
-            text = "✓",
-            fontSize = 54.sp,
-            color = MaterialTheme.colorScheme.primary,
+            text = "Checkout Complete",
+            fontSize = 30.sp,
+            color = Color(0xFF172114),
             fontWeight = FontWeight.ExtraBold
         )
 
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
 
         Text(
-            text = "Thank you ${contactName.ifBlank { "" }}",
-            fontSize = 28.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = Color.Black
-        )
-
-        Spacer(Modifier.height(10.dp))
-
-        Text(
-            text = "That's $mealsGrandTotal meals checked out.",
-            fontSize = 18.sp,
+            text = "Thank you ${contact.fullName.ifBlank { "" }}",
+            fontSize = 20.sp,
             fontWeight = FontWeight.Medium,
-            color = Color.Black
+            color = Color(0xFF556150)
         )
 
-        confirmationId?.let {
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = "Confirmation ID: $it",
-                fontSize = 14.sp,
-                color = Color.Gray
-            )
+        Spacer(Modifier.height(16.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp)) {
+                Text(
+                    text = "Total Checked Out",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color(0xFF556150)
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "$mealsGrandTotal meals",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF172114)
+                )
+                confirmationId?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Confirmation ID: $it",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFF556150)
+                    )
+                }
+            }
         }
 
         Spacer(Modifier.height(18.dp))
 
         companies.forEach { company ->
-            Card(
+            OrangeAccentCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = company.company.ifBlank { "Company" }.uppercase(),
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 16.sp,
-                            color = Color.Black,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = "${company.mealsTotal} meals",
-                            fontSize = 16.sp,
-                            color = Color.Black
-                        )
-                    }
+                Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp)) {
+                    Text(
+                        text = company.company.ifBlank { "UNKNOWN" },
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 18.sp,
+                        color = Color(0xFF172114)
+                    )
 
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(6.dp))
+
+                    Text(
+                        text = "${company.toteIds.size} totes • ${company.toteIds.size * MEALS_PER_TOTE} meals",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFF556150)
+                    )
+
+                    Spacer(Modifier.height(14.dp))
+
+                    Text(
+                        text = "Totes",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color(0xFF556150)
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = company.toteIds.joinToString(", "),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                        color = Color(0xFF172114)
+                    )
+
+                    Spacer(Modifier.height(14.dp))
 
                     Text(
                         text = "Charity Destination",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.Black
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color(0xFF556150)
                     )
+                    Spacer(Modifier.height(4.dp))
                     Text(
-                        text = company.charities.joinToString(" and "),
-                        fontSize = 18.sp,
+                        text = formatCharityList(company.charities),
                         fontWeight = FontWeight.ExtraBold,
-                        color = Color.Black
+                        fontSize = 18.sp,
+                        color = Color(0xFF172114)
                     )
 
-                    if (company.toteAssignments.isNotEmpty()) {
-                        Spacer(Modifier.height(10.dp))
-                        company.toteAssignments.forEach { assignment ->
-                            Text(
-                                text = buildString {
-                                    append("Tote ")
-                                    append(assignment.toteId)
-                                    if (assignment.charity.isNotBlank()) {
-                                        append(" -> ")
-                                        append(assignment.charity)
-                                    }
-                                },
-                                fontSize = 14.sp,
-                                color = Color.DarkGray
-                            )
-                        }
+                    Spacer(Modifier.height(12.dp))
+
+                    company.toteAssignments.forEach { assignment ->
+                        Text(
+                            text = "Tote ${assignment.toteId} -> ${normalizeCharityName(assignment.charity).ifBlank { "Not assigned" }}",
+                            fontSize = 14.sp,
+                            color = Color(0xFF556150)
+                        )
+                        Spacer(Modifier.height(4.dp))
                     }
                 }
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(16.dp))
         }
 
-        Spacer(Modifier.weight(1f))
+        OrangeAccentCard(
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp)) {
+                Text("Contact Details", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = Color(0xFF172114))
+                Spacer(Modifier.height(12.dp))
+                ThankYouContactLine("Name", contact.fullName)
+                Spacer(Modifier.height(10.dp))
+                ThankYouContactLine("Phone", contact.phone)
+                Spacer(Modifier.height(10.dp))
+                ThankYouContactLine("Email", contact.email)
+                Spacer(Modifier.height(10.dp))
+                ThankYouContactLine("Role", contact.role)
+            }
+        }
+
+        Spacer(Modifier.height(22.dp))
 
         Button(
             onClick = onFinish,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary
-            ),
-            shape = RoundedCornerShape(10.dp)
+                .height(58.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            shape = RoundedCornerShape(16.dp)
         ) {
             Text(
-                text = "Finish",
+                text = "Check Out More Meals",
                 color = MaterialTheme.colorScheme.onPrimary,
                 fontWeight = FontWeight.Bold,
                 fontSize = 16.sp
             )
         }
+    }
+}
+
+@Composable
+private fun ThankYouContactLine(label: String, value: String) {
+    Column {
+        Text(text = label, style = MaterialTheme.typography.labelLarge, color = Color(0xFF556150))
+        Spacer(Modifier.height(4.dp))
+        Text(text = value.ifBlank { "-" }, fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Color(0xFF172114))
     }
 }

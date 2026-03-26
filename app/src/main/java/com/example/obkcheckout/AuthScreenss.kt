@@ -51,28 +51,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
-/*
-Backend integration points:
-- Replace BackendAuth.login(...) and BackendAuth.requestPasswordReset(...)
-  with real API calls (Retrofit / Ktor).
-- Persist session token if required (e.g., DataStore) and handle logout / expiry.
-*/
-
 private fun normalizeEmail(raw: String): String = raw.trim()
-
-/**
- * Backend auth facade (placeholder).
- * Backend team replaces these with Retrofit/Ktor client calls.
- */
-private object BackendAuth {
-    /** Validate admin credentials and return a session token. */
-    suspend fun login(email: String, password: String): Result<Unit> =
-        Result.failure(NotImplementedError("Backend login not implemented"))
-
-    /** Send password-reset email if account exists (always return generic success). */
-    suspend fun requestPasswordReset(email: String): Result<Unit> =
-        Result.failure(NotImplementedError("Backend password reset not implemented"))
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -283,9 +262,8 @@ fun LoginScreen(
                                     snackbarHostState.showSnackbar("Please enter a valid email.")
                                     return@launch
                                 }
-                                BackendAuth.requestPasswordReset(e)
                                 snackbarHostState.showSnackbar(
-                                    "If an account exists for that email, a reset link will be sent."
+                                    "Password reset is not configured for this build."
                                 )
                             }
                         }

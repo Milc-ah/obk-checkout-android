@@ -3,76 +3,14 @@ package com.example.obkcheckout
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.obkcheckout.Entities.Container
-import com.example.obkcheckout.Entities.Organization
+import java.time.Instant
 import kotlinx.coroutines.launch
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.decodeFromJsonElement
 
-/**
- * Parsed fields from a tote QR code.
- * Format (one field per line):
- *   Company Name
- *   Batch ID
- *   Meals in batch
- *   Tote ID
- *   Meals in tote
- *   Checked in date (UTC)
- */
-internal data class ParsedQrCode(
-    val companyName: String,
-    val batchId: String,
-    val mealsInBatch: Int,
-    val toteId: String,
-    val mealsInTote: Int,
-    val checkedInDate: String
-)
+class CheckoutViewModel(
+    private val repository: CheckoutRepository = NetworkCheckoutRepository(QairosRetrofit.api)
+) : ViewModel() {
 
-/**
- * Tries to parse a raw QR string as the 6-field tote QR format.
- * Tries newline delimiters first (multi-line QR), then comma/pipe/semicolon/tab.
- * Returns null if the string doesn't match the expected format.
- */
-internal fun parseQrCode(raw: String): ParsedQrCode? {
-    val trimmed = raw.trim()
-    for (delimiter in listOf("\r\n", "\n", ",", "|", ";", "\t")) {
-        val parts = trimmed.split(delimiter)
-        if (parts.size == 6) {
-            val mealsInBatch = parts[2].trim().toIntOrNull() ?: continue
-            val toteId = parts[3].trim()
-            val mealsInTote = parts[4].trim().toIntOrNull() ?: continue
-            if (toteId.isBlank()) continue
-            return ParsedQrCode(
-                companyName = parts[0].trim(),
-                batchId = parts[1].trim(),
-                mealsInBatch = mealsInBatch,
-                toteId = toteId,
-                mealsInTote = mealsInTote,
-                checkedInDate = parts[5].trim()
-            )
-        }
-    }
-    return null
-}
-
-/**
- * Normalises a raw QR / barcode string to a plain tote ID.
- */
-internal fun normalizeToToteId(rawValue: String): String {
-    parseQrCode(rawValue)?.let { return it.toteId }
-    val trimmed = rawValue.trim()
-    val cleaned = trimmed.removePrefix("#").trim()
-    val digits = cleaned.takeWhile { it.isDigit() }
-    return if (digits.isNotBlank()) digits else cleaned
-}
-
-class CheckoutViewModel : ViewModel() {
-
-    private val api = QairosRetrofit.api
-    private val json = Json { ignoreUnknownKeys = true }
-
-    private val _selectedCharity = mutableStateOf("Select")
+    private val _selectedCharity = mutableStateOf("")
     private val _splitEnabled = mutableStateOf(false)
     private val _assignedByToteId = mutableStateOf<Map<String, String>>(emptyMap())
     private val _contactDetails = mutableStateOf(SavedContact())
@@ -80,7 +18,10 @@ class CheckoutViewModel : ViewModel() {
     private val _finalCheckoutPayload = mutableStateOf<FinalCheckoutPayload?>(null)
     private val _confirmationId = mutableStateOf<String?>(null)
     private val _charityNames = mutableStateOf<List<String>>(emptyList())
-    private val _scannedByCompany = mutableStateOf<Map<String, List<String>>>(emptyMap())
+    private val _totes = mutableStateOf<List<ToteRecord>>(emptyList())
+    private val _toteErrorMessage = mutableStateOf<String?>(null)
+    private val _submissionErrorMessage = mutableStateOf<String?>(null)
+    private val _isSubmitting = mutableStateOf(false)
 
     val selectedCharity: String get() = _selectedCharity.value
     val splitEnabled: Boolean get() = _splitEnabled.value
@@ -90,13 +31,17 @@ class CheckoutViewModel : ViewModel() {
     val finalCheckoutPayload: FinalCheckoutPayload? get() = _finalCheckoutPayload.value
     val confirmationId: String? get() = _confirmationId.value
     val charityNames: List<String> get() = _charityNames.value
-    val scannedByCompany: Map<String, List<String>> get() = _scannedByCompany.value
-
-    private val toteIds = mutableListOf<String>()
-    private val mealsByToteId = mutableMapOf<String, Int>()
+    val scannedByCompany: Map<String, List<String>>
+        get() = _totes.value
+            .groupBy { it.company.ifBlank { "UNKNOWN" } }
+            .mapValues { (_, value) -> value.map { it.toteId } }
+    val totes: List<ToteRecord> get() = _totes.value
+    val toteErrorMessage: String? get() = _toteErrorMessage.value
+    val submissionErrorMessage: String? get() = _submissionErrorMessage.value
+    val isSubmitting: Boolean get() = _isSubmitting.value
 
     fun setSelectedCharity(charity: String) {
-        _selectedCharity.value = charity
+        _selectedCharity.value = charity.trim()
         if (!_splitEnabled.value) rebuildDerivedCheckoutState()
     }
 
@@ -106,84 +51,115 @@ class CheckoutViewModel : ViewModel() {
     }
 
     fun setAssignedByToteId(map: Map<String, String>) {
+        val toteIds = _totes.value.map { it.toteId }.toSet()
         _assignedByToteId.value = map
+            .mapValues { it.value.trim() }
             .filterKeys { toteIds.contains(it) }
-            .filterValues { it.isNotBlank() && it != "Select" }
+            .filterValues { it.isNotBlank() }
         rebuildDerivedCheckoutState()
     }
 
-    fun setConfirmationId(id: String?) {
-        _confirmationId.value = id
+    fun clearToteError() {
+        _toteErrorMessage.value = null
     }
 
-    fun addManualToteId(rawValue: String) = addTote(rawValue)
+    fun clearSubmissionError() {
+        _submissionErrorMessage.value = null
+    }
 
-    fun addScannedId(rawValue: String) = addTote(rawValue)
+    fun addManualToteEntry(toteId: String, companyName: String) {
+        val trimmedToteId = toteId.trim()
+        val trimmedCompany = companyName.trim()
 
-    fun addTote(rawValue: String) {
-        viewModelScope.launch {
-            val resolved = resolveTote(rawValue) ?: return@launch
-            if (toteIds.contains(resolved.toteId)) return@launch
-
-            toteIds.add(resolved.toteId)
-            mealsByToteId[resolved.toteId] = resolved.mealsInTote
-            addToteToCompany(resolved.companyName, resolved.toteId)
-            rebuildDerivedCheckoutState()
+        when {
+            trimmedToteId.isBlank() -> {
+                _toteErrorMessage.value = "Please enter a Tote ID."
+                return
+            }
+            trimmedCompany.isBlank() -> {
+                _toteErrorMessage.value = "Please enter a Company Name."
+                return
+            }
+            _totes.value.any { it.toteId == trimmedToteId } -> {
+                _toteErrorMessage.value = "Tote $trimmedToteId has already been added."
+                return
+            }
         }
+
+        _toteErrorMessage.value = null
+        _totes.value = (
+            _totes.value + ToteRecord(
+                toteId = trimmedToteId,
+                company = trimmedCompany.uppercase(),
+                mealsInTote = MEALS_PER_TOTE,
+                source = ToteSource.MANUAL,
+                isResolved = true
+            )
+        ).sortedWith(compareBy<ToteRecord> { it.company }.thenBy { it.toteId })
+        rebuildDerivedCheckoutState()
     }
 
-    /** Fetches the charity list from the server. */
+    fun addManualToteId(rawValue: String) = addTote(rawValue, ToteSource.MANUAL)
+
+    fun addScannedId(rawValue: String) = addTote(rawValue, ToteSource.SCANNED)
+
     fun loadCharities() {
         viewModelScope.launch {
-            try {
-                val parameters = mapOf("where" to "OrganizationTypeId=4")
-                val response = api.getRecords(
-                    TokenStore.bearerToken,
-                    Organization::class.simpleName ?: "Organization",
-                    parameters
-                )
-                if (response.isSuccessful) {
-                    val data = response.body()?.data
-                    if (data != null) {
-                        val organizations = json.decodeFromJsonElement<Array<Organization>>(data)
-                        _charityNames.value = organizations
-                            .map { it.Name }
-                            .filter { it.isNotBlank() }
-                    }
-                }
-            } catch (_: Exception) {
-                // Leave charityNames empty; UI shows loading state.
-            }
-        }
-    }
-
-    /** POSTs the completed checkout to the server. */
-    fun submitCheckout(onSuccess: () -> Unit) {
-        viewModelScope.launch {
-            try {
-                val response = api.confirmCheckout(
-                    TokenStore.bearerToken,
-                    ConfirmCheckoutRequest(sessionId = "")
-                )
-                if (response.isSuccessful) {
-                    _confirmationId.value = response.body()?.confirmationId
-                    onSuccess()
-                }
-            } catch (_: Exception) {
-                // Network failure; stay on review screen so the user can retry.
-            }
+            repository.loadCharityNames()
+                .onSuccess { _charityNames.value = it }
+                .onFailure { _submissionErrorMessage.value = "Unable to load charities right now." }
         }
     }
 
     fun removeScannedId(company: String, toteId: String) {
-        toteIds.remove(toteId)
-        mealsByToteId.remove(toteId)
+        _totes.value = _totes.value.filterNot { it.toteId == toteId && it.company == company }
         _assignedByToteId.value = _assignedByToteId.value - toteId
-        removeToteFromState(company, toteId)
         rebuildDerivedCheckoutState()
     }
 
-    /** Saves contact details and rebuilds the review summary in one step. */
+    fun updateTote(
+        currentCompany: String,
+        currentToteId: String,
+        newToteId: String,
+        newCompany: String
+    ): String? {
+        val trimmedToteId = newToteId.trim()
+        val trimmedCompany = newCompany.trim()
+
+        when {
+            trimmedToteId.isBlank() -> return "Please enter a Tote ID."
+            trimmedCompany.isBlank() -> return "Please enter a Company Name."
+            _totes.value.any { it.toteId == trimmedToteId && it.toteId != currentToteId } ->
+                return "Tote $trimmedToteId has already been added."
+        }
+
+        val exists = _totes.value.any {
+            it.toteId == currentToteId && it.company == currentCompany
+        }
+        if (!exists) return "Unable to update that tote."
+
+        _totes.value = _totes.value.map { tote ->
+            if (tote.toteId == currentToteId && tote.company == currentCompany) {
+                tote.copy(
+                    toteId = trimmedToteId,
+                    company = trimmedCompany.uppercase(),
+                    mealsInTote = MEALS_PER_TOTE
+                )
+            } else {
+                tote
+            }
+        }.sortedWith(compareBy<ToteRecord> { it.company }.thenBy { it.toteId })
+
+        val existingAssignment = _assignedByToteId.value[currentToteId]
+        _assignedByToteId.value = (_assignedByToteId.value - currentToteId).let { current ->
+            if (existingAssignment.isNullOrBlank()) current else current + (trimmedToteId to existingAssignment)
+        }
+
+        _toteErrorMessage.value = null
+        rebuildDerivedCheckoutState()
+        return null
+    }
+
     fun buildAndSetReviewSummary(contact: SavedContact) {
         _contactDetails.value = contact
         rebuildDerivedCheckoutState()
@@ -193,82 +169,88 @@ class CheckoutViewModel : ViewModel() {
         rebuildDerivedCheckoutState()
     }
 
-    /** Resets all session state. */
+    fun submitCheckout(onSuccess: () -> Unit) {
+        val payload = _finalCheckoutPayload.value ?: run {
+            _submissionErrorMessage.value = "Checkout payload is incomplete."
+            return
+        }
+        _isSubmitting.value = true
+        _submissionErrorMessage.value = null
+        viewModelScope.launch {
+            repository.submitCheckout(
+                CheckoutSubmission(
+                    totes = _totes.value.map { tote ->
+                        CheckoutSubmissionTote(
+                            toteId = tote.toteId,
+                            companyName = tote.company,
+                            charityName = when {
+                                _splitEnabled.value -> _assignedByToteId.value[tote.toteId].orEmpty()
+                                _selectedCharity.value.isNotBlank() -> _selectedCharity.value
+                                else -> ""
+                            },
+                            meals = MEALS_PER_TOTE
+                        )
+                    },
+                    companies = payload.companies,
+                    contact = payload.contact,
+                    mealsGrandTotal = payload.mealsGrandTotal,
+                    submittedAtUtc = Instant.now().toString(),
+                    operatorId = TokenStore.token.takeIf { it.isNotBlank() }
+                )
+            ).onSuccess { response ->
+                _confirmationId.value = response.confirmationId
+                _reviewSummary.value = buildReviewSummary(_contactDetails.value)
+                _finalCheckoutPayload.value = FinalCheckoutPayload(
+                    companies = _reviewSummary.value?.companies.orEmpty(),
+                    contact = _reviewSummary.value?.contact ?: _contactDetails.value,
+                    mealsGrandTotal = _reviewSummary.value?.mealsGrandTotal ?: payload.mealsGrandTotal
+                )
+                onSuccess()
+            }.onFailure { error ->
+                _submissionErrorMessage.value = "Something went wrong while submitting checkout. Please try again."
+            }
+            _isSubmitting.value = false
+        }
+    }
+
     fun reset() {
-        _scannedByCompany.value = emptyMap()
-        toteIds.clear()
-        mealsByToteId.clear()
+        _totes.value = emptyList()
         _assignedByToteId.value = emptyMap()
         _splitEnabled.value = false
-        _selectedCharity.value = "Select"
+        _selectedCharity.value = ""
         _reviewSummary.value = null
         _finalCheckoutPayload.value = null
         _confirmationId.value = null
         _contactDetails.value = SavedContact()
+        _toteErrorMessage.value = null
+        _submissionErrorMessage.value = null
+        _isSubmitting.value = false
     }
 
-    private fun addToteToCompany(company: String, toteId: String) {
-        val next = _scannedByCompany.value.toMutableMap()
-        val list = next[company]?.toMutableList() ?: mutableListOf()
-        if (!list.contains(toteId)) {
-            list.add(toteId)
-            next[company] = list
-            _scannedByCompany.value = next
-        }
-    }
-
-    private fun removeToteFromState(company: String, toteId: String) {
-        val next = _scannedByCompany.value.toMutableMap()
-        val list = next[company]?.toMutableList() ?: return
-        list.remove(toteId)
-        if (list.isEmpty()) next.remove(company) else next[company] = list
-        _scannedByCompany.value = next
-    }
-
-    private suspend fun resolveTote(rawValue: String): ResolvedTote? {
-        parseQrCode(rawValue)?.let { parsed ->
-            return ResolvedTote(
-                toteId = parsed.toteId,
-                companyName = parsed.companyName.ifBlank { "Unknown" }.uppercase(),
-                mealsInTote = parsed.mealsInTote
-            )
+    private fun addTote(rawValue: String, source: ToteSource) {
+        val trimmed = rawValue.trim()
+        if (trimmed.isBlank()) {
+            _toteErrorMessage.value = "Please enter a Tote ID."
+            return
         }
 
-        val parsedContainerId = rawValue
-            .takeIf { it.trim().startsWith("{") }
-            ?.let { rawJson ->
-                runCatching { json.decodeFromString<Container>(rawJson) }
-                    .getOrNull()
-                    ?.ContainerId
-            }
-
-        val toteId = (parsedContainerId?.toString() ?: normalizeToToteId(rawValue)).trim()
-        val numericId = toteId.toIntOrNull() ?: return null
-
-        val parameters = mapOf("include" to "ItemMovements(Warehouse,Organization)")
-        val response = api.getRecord(
-            TokenStore.bearerToken,
-            Container::class.simpleName ?: "Container",
-            numericId,
-            parameters
-        )
-        if (!response.isSuccessful) return null
-
-        val container = json.decodeFromString<Container>(response.body() ?: return null)
-        val resolvedToteId = (container.ContainerId ?: numericId).toString()
-        val companyName = container.ItemMovements
-            ?.firstOrNull { it.Warehouse?.WarehouseTypeId == 3 }
-            ?.Organization
-            ?.Name
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?: "Unknown"
-
-        return ResolvedTote(
-            toteId = resolvedToteId,
-            companyName = companyName.uppercase(),
-            mealsInTote = mealsByToteId[resolvedToteId] ?: MEALS_PER_TOTE
-        )
+        viewModelScope.launch {
+            repository.resolveTote(trimmed, source)
+                .onSuccess { tote ->
+                    if (_totes.value.any { it.toteId == tote.toteId }) {
+                        _toteErrorMessage.value = "Tote ${tote.toteId} has already been added."
+                        return@onSuccess
+                    }
+                    _toteErrorMessage.value = null
+                    _totes.value = (_totes.value + tote).sortedWith(
+                        compareBy<ToteRecord> { it.company }.thenBy { it.toteId }
+                    )
+                    rebuildDerivedCheckoutState()
+                }
+                .onFailure { error ->
+                    _toteErrorMessage.value = error.message ?: "Unable to add tote."
+                }
+        }
     }
 
     private fun rebuildDerivedCheckoutState() {
@@ -282,26 +264,29 @@ class CheckoutViewModel : ViewModel() {
     }
 
     private fun buildReviewSummary(contact: SavedContact): ReviewSummary {
-        val companies = scannedByCompany.entries.map { (company, totes) ->
-            val toteAssignments = totes.map { toteId ->
-                ToteCharitySummary(
-                    toteId = toteId,
-                    charity = when {
-                        _splitEnabled.value -> _assignedByToteId.value[toteId].orEmpty()
-                        _selectedCharity.value != "Select" -> _selectedCharity.value
-                        else -> ""
-                    }
+        val companies = _totes.value
+            .groupBy { it.company.ifBlank { "UNKNOWN" } }
+            .toSortedMap()
+            .map { (company, totes) ->
+                val toteAssignments = totes.map { tote ->
+                    ToteCharitySummary(
+                        toteId = tote.toteId,
+                        charity = when {
+                            _splitEnabled.value -> _assignedByToteId.value[tote.toteId].orEmpty()
+                            _selectedCharity.value.isNotBlank() -> _selectedCharity.value
+                            else -> ""
+                        }
+                    )
+                }
+
+                CompanySummary(
+                    company = company,
+                    toteIds = totes.map { it.toteId },
+                    toteAssignments = toteAssignments,
+                    charities = toteAssignments.map { it.charity }.filter { it.isNotBlank() }.distinct(),
+                    mealsTotal = totes.sumOf { it.mealsInTote }
                 )
             }
-
-            CompanySummary(
-                company = company,
-                toteIds = totes.toList(),
-                toteAssignments = toteAssignments,
-                charities = toteAssignments.map { it.charity }.filter { it.isNotBlank() }.distinct(),
-                mealsTotal = totes.sumOf { mealsByToteId[it] ?: MEALS_PER_TOTE }
-            )
-        }
 
         return ReviewSummary(
             companies = companies,
@@ -310,9 +295,3 @@ class CheckoutViewModel : ViewModel() {
         )
     }
 }
-
-private data class ResolvedTote(
-    val toteId: String,
-    val companyName: String,
-    val mealsInTote: Int
-)

@@ -1,8 +1,14 @@
 package com.example.obkcheckout
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -10,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +28,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -32,10 +40,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -44,21 +53,31 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.copy
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.obkcheckout.ui.theme.OBKCheckoutTheme
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,7 +88,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    OBKApp()
+                    OBKAppRoot()
                 }
             }
         }
@@ -79,71 +98,94 @@ class MainActivity : ComponentActivity() {
 private fun fs(base: Int) = (base * 1.2f).sp
 
 @Composable
+private fun OBKAppRoot() {
+    var splashVisible by rememberSaveable { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        delay(1400)
+        splashVisible = false
+    }
+
+    if (splashVisible) {
+        OBKSplashScreen()
+    } else {
+        OBKApp()
+    }
+}
+
+@Composable
 private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
     val navController = rememberNavController()
 
-    NavHost(navController = navController, startDestination = "login") {
-        composable("login") {
+    NavHost(navController = navController, startDestination = CheckoutRoutes.LOGIN) {
+        composable(CheckoutRoutes.LOGIN) {
             LoginScreen(
                 onLoginSuccess = {
                     vm.loadCharities()
-                    navController.navigate("start") {
-                        popUpTo("login") { inclusive = true }
+                    navController.navigate(CheckoutRoutes.START) {
+                        popUpTo(CheckoutRoutes.LOGIN) { inclusive = true }
                         launchSingleTop = true
                     }
                 }
             )
         }
 
-        composable("start") {
+        composable(CheckoutRoutes.START) {
             ToteCheckoutStartScreen(
                 scannedByCompany = vm.scannedByCompany,
-                onScanClicked = { navController.navigate("scanner") },
-                onManualAdd = { toteId -> vm.addTote(toteId) },
+                totalToteCount = vm.totes.size,
+                toteErrorMessage = vm.toteErrorMessage,
+                onDismissToteError = vm::clearToteError,
+                onScanClicked = { navController.navigate(CheckoutRoutes.SCANNER) },
+                onManualAdd = { toteId, companyName -> vm.addManualToteEntry(toteId, companyName) },
                 onRemove = { company, id -> vm.removeScannedId(company, id) },
-                onProceed = { navController.navigate("confirm") },
+                onProceed = {
+                    navController.navigate(CheckoutRoutes.CONFIRM) {
+                        launchSingleTop = true
+                    }
+                },
                 onLogout = {
                     TokenStore.clear()
                     vm.reset()
-                    navController.navigate("login") {
-                        popUpTo("start") { inclusive = true }
+                    navController.navigate(CheckoutRoutes.LOGIN) {
+                        popUpTo(CheckoutRoutes.START) { inclusive = true }
                         launchSingleTop = true
                     }
                 }
             )
         }
 
-        composable("scanner") {
-            val companyByToteId = vm.scannedByCompany
-                .flatMap { (company, totes) -> totes.map { it to company } }
-                .toMap()
-
+        composable(CheckoutRoutes.SCANNER) {
             ContinuousScannerScreen(
                 scannedByCompany = vm.scannedByCompany,
-                companyByToteId = companyByToteId,
-                onScannedTote = { toteId -> vm.addTote(toteId) },
-                onManualToteId = { toteId -> vm.addTote(toteId) },
+                toteErrorMessage = vm.toteErrorMessage,
+                onDismissToteError = vm::clearToteError,
+                onScannedTote = { toteId -> vm.addScannedId(toteId) },
+                onManualToteId = { toteId -> vm.addManualToteId(toteId) },
                 onRemoveTote = { company, toteId -> vm.removeScannedId(company, toteId) },
-                onDone = { navController.navigate("confirm") },
+                onDone = {
+                    navController.navigate(CheckoutRoutes.CONFIRM) {
+                        popUpTo(CheckoutRoutes.START)
+                        launchSingleTop = true
+                    }
+                },
                 onBack = { navController.popBackStack() }
             )
         }
 
-        composable("confirm") {
+        composable(CheckoutRoutes.CONFIRM) {
             ConfirmScreen(
                 scannedByCompany = vm.scannedByCompany,
                 onRemove = { company, id -> vm.removeScannedId(company, id) },
-                onAddMore = { navController.navigate("scanner") },
-                onBack = { navController.popBackStack() },
-                onSplitByCharity = {
-                    vm.setSplitEnabled(true)
-                    navController.navigate("splitByCharity?returnToReview=false")
+                onAddMore = {
+                    navController.popBackStack(CheckoutRoutes.START, inclusive = false)
                 },
-                onProceed = { navController.navigate("charityDestination?returnToReview=false") }
+                onBack = { navController.popBackStack(CheckoutRoutes.START, inclusive = false) },
+                onProceed = { navController.navigate("${CheckoutRoutes.CHARITY_DESTINATION}?returnToReview=false") }
             )
         }
 
-        composable(route = "charityDestination?returnToReview={returnToReview}") { backStackEntry ->
+        composable(route = "${CheckoutRoutes.CHARITY_DESTINATION}?returnToReview={returnToReview}") { backStackEntry ->
             val returnToReview =
                 backStackEntry.arguments?.getString("returnToReview")?.toBoolean() ?: false
 
@@ -154,72 +196,86 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
                 onBack = { navController.popBackStack() },
                 onSplitByCharity = {
                     vm.setSplitEnabled(true)
-                    navController.navigate("splitByCharity?returnToReview=$returnToReview")
+                    navController.navigate("${CheckoutRoutes.SPLIT_BY_CHARITY}?returnToReview=$returnToReview")
                 },
-                onContinue = {
+                onContinue = { charity ->
+                    vm.setSelectedCharity(charity)
                     vm.setSplitEnabled(false)
                     vm.setAssignedByToteId(emptyMap())
                     if (returnToReview) {
                         vm.rebuildReviewSummary()
-                        navController.popBackStack("review", inclusive = false)
+                        navController.popBackStack(CheckoutRoutes.REVIEW, inclusive = false)
                     } else {
-                        navController.navigate("contactDetails")
+                        navController.navigate(CheckoutRoutes.CONTACT_DETAILS)
                     }
                 }
             )
         }
 
-        composable(route = "splitByCharity?returnToReview={returnToReview}") { backStackEntry ->
+        composable(route = "${CheckoutRoutes.SPLIT_BY_CHARITY}?returnToReview={returnToReview}") { backStackEntry ->
             val returnToReview =
                 backStackEntry.arguments?.getString("returnToReview")?.toBoolean() ?: false
-            val allTotes = vm.scannedByCompany.values.flatten().distinct().sorted()
+            val groupedTotes = groupedTotesByCompany(vm.scannedByCompany)
 
             SplitByCharityScreen(
-                toteIds = allTotes,
+                groupedTotes = groupedTotes,
                 charities = vm.charityNames,
                 initialAssignments = vm.assignedByToteId,
+                onAssignmentsChanged = { vm.setAssignedByToteId(it) },
                 onBack = { navController.popBackStack() },
                 onContinue = { assignedMap ->
                     vm.setSplitEnabled(true)
                     vm.setAssignedByToteId(assignedMap)
                     if (returnToReview) {
                         vm.rebuildReviewSummary()
-                        navController.popBackStack("review", inclusive = false)
+                        navController.popBackStack(CheckoutRoutes.REVIEW, inclusive = false)
                     } else {
-                        navController.navigate("contactDetails")
+                        navController.navigate(CheckoutRoutes.CONTACT_DETAILS)
                     }
                 }
             )
         }
 
-        composable("contactDetails") {
+        composable(CheckoutRoutes.CONTACT_DETAILS) {
             ContactDetailsScreen(
                 initialContact = vm.contactDetails,
                 onBack = { navController.popBackStack() },
                 onContinue = { savedContact ->
                     vm.buildAndSetReviewSummary(savedContact)
-                    navController.navigate("review")
+                    navController.navigate(CheckoutRoutes.REVIEW)
                 }
             )
         }
 
-        composable("review") {
+        composable(CheckoutRoutes.REVIEW) {
             val summary: ReviewSummary? = vm.reviewSummary
             if (summary != null) {
                 ReviewScreen(
                     summary = summary,
+                    submissionErrorMessage = vm.submissionErrorMessage,
+                    isSubmitting = vm.isSubmitting,
+                    onDismissSubmissionError = vm::clearSubmissionError,
                     onBack = { navController.popBackStack() },
                     onEditCharities = {
                         if (vm.splitEnabled) {
-                            navController.navigate("splitByCharity?returnToReview=true")
+                            navController.navigate("${CheckoutRoutes.SPLIT_BY_CHARITY}?returnToReview=true")
                         } else {
-                            navController.navigate("charityDestination?returnToReview=true")
+                            navController.navigate("${CheckoutRoutes.CHARITY_DESTINATION}?returnToReview=true")
                         }
                     },
-                    onEditContact = { navController.navigate("contactDetails") },
+                    onEditContact = { navController.navigate(CheckoutRoutes.CONTACT_DETAILS) },
+                    onCheckoutMoreMeals = {
+                        navController.popBackStack(CheckoutRoutes.START, inclusive = false)
+                    },
+                    onEditTote = { company, oldToteId, newToteId, newCompany ->
+                        vm.updateTote(company, oldToteId, newToteId, newCompany)
+                    },
+                    onRemoveTote = { company, toteId ->
+                        vm.removeScannedId(company, toteId)
+                    },
                     onContinue = {
                         vm.submitCheckout {
-                            navController.navigate("thankYou")
+                            navController.navigate(CheckoutRoutes.THANK_YOU)
                         }
                     }
                 )
@@ -232,31 +288,31 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
                     Text("Unable to load review summary. Returning to Contact Details.")
                 }
                 LaunchedEffect(Unit) {
-                    navController.popBackStack("contactDetails", inclusive = false)
+                    navController.popBackStack(CheckoutRoutes.CONTACT_DETAILS, inclusive = false)
                 }
             }
         }
 
-        composable("thankYou") {
+        composable(CheckoutRoutes.THANK_YOU) {
             val summary: ReviewSummary? = vm.reviewSummary
             if (summary != null) {
                 ThankYouScreen(
                     confirmationId = vm.confirmationId,
                     mealsGrandTotal = summary.mealsGrandTotal,
                     companies = summary.companies,
-                    contactName = summary.contact.fullName,
+                    contact = summary.contact,
                     onFinish = {
                         vm.reset()
-                        navController.navigate("start") {
-                            popUpTo("start") { inclusive = true }
+                        navController.navigate(CheckoutRoutes.START) {
+                            popUpTo(CheckoutRoutes.START) { inclusive = true }
                             launchSingleTop = true
                         }
                     }
                 )
             } else {
                 LaunchedEffect(Unit) {
-                    navController.navigate("start") {
-                        popUpTo("start") { inclusive = true }
+                    navController.navigate(CheckoutRoutes.START) {
+                        popUpTo(CheckoutRoutes.START) { inclusive = true }
                         launchSingleTop = true
                     }
                 }
@@ -265,32 +321,138 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
     }
 }
 
+@Composable
+private fun OBKSplashScreen() {
+    val chefOffset by rememberInfiniteTransition(label = "chefSplash").animateFloat(
+        initialValue = -42f,
+        targetValue = 42f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "chefOffset"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF5F7F1))
+            .padding(horizontal = 28.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.obklogo2),
+            contentDescription = "Big Kitchen Logo",
+            modifier = Modifier.size(220.dp)
+        )
+        Spacer(Modifier.height(18.dp))
+        Text(
+            text = "Preparing checkout...",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF172114)
+        )
+        Spacer(Modifier.height(20.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .border(BorderStroke(1.dp, Color(0xFFE48A14)), RoundedCornerShape(16.dp))
+                .padding(horizontal = 18.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Text(
+                text = "\uD83E\uDDD1\u200D\uD83C\uDF73",
+                fontSize = 28.sp,
+                modifier = Modifier.offset(x = chefOffset.dp)
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ToteCheckoutStartScreen(
     scannedByCompany: Map<String, List<String>>,
+    totalToteCount: Int,
+    toteErrorMessage: String?,
+    onDismissToteError: () -> Unit,
     onScanClicked: () -> Unit,
-    onManualAdd: (String) -> Unit,
+    onManualAdd: (String, String) -> Unit,
     onRemove: (company: String, toteId: String) -> Unit,
     onProceed: () -> Unit,
     onLogout: () -> Unit
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var toteId by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val activity = context.findActivity()
+    var toteId by rememberSaveable { mutableStateOf("") }
+    var companyName by rememberSaveable { mutableStateOf("") }
+    var toteIdError by rememberSaveable { mutableStateOf<String?>(null) }
+    var companyNameError by rememberSaveable { mutableStateOf<String?>(null) }
+    var cameraMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    var showPermissionRationale by rememberSaveable { mutableStateOf(false) }
+    var showPermissionSettings by rememberSaveable { mutableStateOf(false) }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { granted -> if (granted) onScanClicked() }
+    ) { granted ->
+        if (granted) {
+            cameraMessage = null
+            showPermissionRationale = false
+            showPermissionSettings = false
+            onScanClicked()
+        } else {
+            cameraMessage = "Camera permission is required to scan QR codes."
+            showPermissionSettings = activity?.let {
+                !ActivityCompat.shouldShowRequestPermissionRationale(
+                    it,
+                    Manifest.permission.CAMERA
+                )
+            } == true
+        }
+    }
 
     fun launchScanner() {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
-        if (granted) onScanClicked() else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        when {
+            granted -> {
+                cameraMessage = null
+                onScanClicked()
+            }
+            activity != null && ActivityCompat.shouldShowRequestPermissionRationale(
+                activity,
+                Manifest.permission.CAMERA
+            ) -> {
+                showPermissionRationale = true
+            }
+            else -> {
+                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            }
+        }
+    }
+
+    fun openAppSettings() {
+        val intent = Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.fromParts("package", context.packageName, null)
+        )
+        context.startActivity(intent)
     }
 
     val green = MaterialTheme.colorScheme.primary
     val lightBg = MaterialTheme.colorScheme.primaryContainer
+    val hasTotes = scannedByCompany.values.any { it.isNotEmpty() }
+
+    LaunchedEffect(totalToteCount) {
+        if (totalToteCount > 0 && toteErrorMessage == null) {
+            toteId = ""
+            companyName = ""
+            toteIdError = null
+            companyNameError = null
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
         Column(
@@ -329,7 +491,7 @@ private fun ToteCheckoutStartScreen(
             Spacer(Modifier.height(10.dp))
 
             Text(
-                text = "Enter Tote ID to checkout",
+                text = "Enter Tote details to checkout",
                 modifier = Modifier.fillMaxWidth(),
                 color = Color.Black,
                 fontSize = fs(13),
@@ -342,29 +504,74 @@ private fun ToteCheckoutStartScreen(
                 value = toteId,
                 onValueChange = {
                     toteId = it
-                    if (!error.isNullOrEmpty()) error = null
+                    if (!toteIdError.isNullOrEmpty()) toteIdError = null
+                    if (toteErrorMessage != null) onDismissToteError()
                 },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Enter Tote ID", fontSize = fs(13)) },
+                label = { Text("Tote ID", fontSize = fs(12)) },
+                placeholder = {
+                    Text(
+                        "Enter Tote ID",
+                        fontSize = fs(13),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                    )
+                },
                 singleLine = true
             )
 
-            if (!error.isNullOrEmpty()) {
+            if (!toteIdError.isNullOrEmpty()) {
                 Spacer(Modifier.height(8.dp))
-                Text(text = error!!, color = MaterialTheme.colorScheme.error, fontSize = fs(12))
+                Text(text = toteIdError!!, color = MaterialTheme.colorScheme.error, fontSize = fs(12))
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = companyName,
+                onValueChange = {
+                    companyName = it
+                    if (!companyNameError.isNullOrEmpty()) companyNameError = null
+                    if (toteErrorMessage != null) onDismissToteError()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Company Name", fontSize = fs(12)) },
+                placeholder = {
+                    Text(
+                        "Enter Company Name",
+                        fontSize = fs(13),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                    )
+                },
+                singleLine = true
+            )
+
+            if (!companyNameError.isNullOrEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(text = companyNameError!!, color = MaterialTheme.colorScheme.error, fontSize = fs(12))
+            }
+
+            if (!toteErrorMessage.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = toteErrorMessage,
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = fs(12),
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
             Spacer(Modifier.height(18.dp))
 
             Button(
                 onClick = {
-                    val trimmed = toteId.trim()
-                    if (trimmed.isEmpty()) {
-                        error = "Please enter a Tote ID."
-                    } else {
-                        onManualAdd(trimmed)
-                        toteId = ""
-                        error = null
+                    val trimmedToteId = toteId.trim()
+                    val trimmedCompanyName = companyName.trim()
+
+                    toteIdError = if (trimmedToteId.isBlank()) "Please enter a Tote ID." else null
+                    companyNameError = if (trimmedCompanyName.isBlank()) "Please enter a Company Name." else null
+
+                    if (toteIdError == null && companyNameError == null) {
+                        onManualAdd(trimmedToteId, trimmedCompanyName)
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -385,9 +592,9 @@ private fun ToteCheckoutStartScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Divider(modifier = Modifier.weight(1f))
+                HorizontalDivider(modifier = Modifier.weight(1f))
                 Text(text = "  or  ", color = Color.Gray, fontSize = fs(12))
-                Divider(modifier = Modifier.weight(1f))
+                HorizontalDivider(modifier = Modifier.weight(1f))
             }
 
             Spacer(Modifier.height(22.dp))
@@ -416,6 +623,16 @@ private fun ToteCheckoutStartScreen(
                 }
             }
 
+            if (!cameraMessage.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = cameraMessage!!,
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = fs(12),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
             Spacer(Modifier.height(16.dp))
 
             OutlinedButton(
@@ -433,20 +650,20 @@ private fun ToteCheckoutStartScreen(
                 )
             }
 
-            if (scannedByCompany.isNotEmpty()) {
-                Spacer(Modifier.height(24.dp))
-                Divider()
-                Spacer(Modifier.height(14.dp))
-                Text(
-                    text = "Totes added",
-                    fontSize = fs(14),
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Black,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                scannedByCompany.forEach { (company, ids) ->
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(14.dp))
+            Text(
+                text = "Totes added",
+                fontSize = fs(14),
+                fontWeight = FontWeight.Bold,
+                color = Color.Black,
+                modifier = Modifier.fillMaxWidth()
+            )
+            if (hasTotes) {
+                scannedByCompany.toSortedMap().forEach { (company, ids) ->
                     Text(
-                        text = company,
+                        text = company.ifBlank { "UNKNOWN" },
                         fontSize = fs(14),
                         fontWeight = FontWeight.Bold,
                         color = Color.Black,
@@ -464,23 +681,83 @@ private fun ToteCheckoutStartScreen(
                         }
                     }
                 }
-                Spacer(Modifier.height(20.dp))
-                Button(
-                    onClick = onProceed,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = green),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text(
-                        "Proceed to Confirm",
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = fs(14)
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
+            } else {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "No totes added yet.",
+                    color = Color.Gray,
+                    fontSize = fs(12),
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
+
+            Spacer(Modifier.height(20.dp))
+            Button(
+                onClick = onProceed,
+                enabled = hasTotes,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = green),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text(
+                    "Continue",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = fs(14)
+                )
+            }
+            Spacer(Modifier.height(10.dp))
         }
+    }
+
+    if (showPermissionRationale) {
+        AlertDialog(
+            onDismissRequest = { showPermissionRationale = false },
+            title = { Text("Allow Camera Access") },
+            text = {
+                Text("Camera access is needed to scan QR codes. Please allow camera access to continue scanning.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showPermissionRationale = false
+                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                    }
+                ) {
+                    Text("Continue")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPermissionRationale = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showPermissionSettings) {
+        AlertDialog(
+            onDismissRequest = { showPermissionSettings = false },
+            title = { Text("Turn On Camera Access") },
+            text = {
+                Text("Camera access is needed to scan QR codes. Please allow camera access in Android Settings to continue scanning.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showPermissionSettings = false
+                        openAppSettings()
+                    }
+                ) {
+                    Text("Open Settings")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPermissionSettings = false }) {
+                    Text("Not now")
+                }
+            }
+        )
     }
 }
 
@@ -491,7 +768,6 @@ private fun ConfirmScreen(
     onRemove: (company: String, toteId: String) -> Unit,
     onAddMore: () -> Unit,
     onBack: () -> Unit,
-    onSplitByCharity: () -> Unit,
     onProceed: () -> Unit
 ) {
     val green = MaterialTheme.colorScheme.primary
@@ -522,9 +798,9 @@ private fun ConfirmScreen(
             if (scannedByCompany.isEmpty()) {
                 Text(text = "No totes scanned yet.", color = Color.Gray, fontSize = fs(13))
             } else {
-                scannedByCompany.forEach { (company, ids) ->
+                scannedByCompany.toSortedMap().forEach { (company, ids) ->
                     Text(
-                        text = company,
+                        text = company.ifBlank { "UNKNOWN" },
                         fontSize = fs(14),
                         fontWeight = FontWeight.Bold,
                         color = Color.Black,
@@ -556,18 +832,6 @@ private fun ConfirmScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            OutlinedButton(
-                onClick = onSplitByCharity,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                border = BorderStroke(2.dp, green),
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White)
-            ) {
-                Text("Split by Charity", color = green, fontWeight = FontWeight.Bold, fontSize = fs(14))
-            }
-
-            Spacer(Modifier.height(12.dp))
-
             Button(
                 onClick = onProceed,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -585,6 +849,12 @@ private fun ConfirmScreen(
             Spacer(Modifier.height(10.dp))
         }
     }
+}
+
+private fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 @Composable
@@ -608,7 +878,7 @@ private fun OBKHeaderBarWithBack(onBack: () -> Unit) {
             modifier = Modifier.padding(top = 6.dp)
         ) {
             Text(
-                "← Back",
+                "Back",
                 color = MaterialTheme.colorScheme.onPrimary,
                 fontWeight = FontWeight.Bold,
                 fontSize = fs(13)
@@ -635,7 +905,7 @@ private fun OBKIdChip(id: String, onRemove: () -> Unit) {
             )
             Spacer(Modifier.size(10.dp))
             Text(
-                text = "×",
+                text = "x",
                 color = MaterialTheme.colorScheme.onSecondary,
                 fontWeight = FontWeight.Bold,
                 fontSize = fs(14),

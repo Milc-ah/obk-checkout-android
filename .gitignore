@@ -9,6 +9,7 @@
 
 # Gradle + build outputs
 .gradle/
+.gradle-user/
 **/build/
 
 # Local config

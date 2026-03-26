@@ -1,7 +1,8 @@
 package com.example.obkcheckout
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,8 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -45,8 +45,7 @@ private val ROLE_OPTIONS = listOf(
     "Warehouse",
     "Volunteer",
     "Team Leader",
-    "Manager",
-    "Other"
+    "Manager"
 )
 
 @Composable
@@ -92,7 +91,7 @@ fun ContactDetailsScreen(
         val digits = p.filter { it.isDigit() }
         when {
             p.isBlank()              -> { phoneError = "Phone number is required."; ok = false }
-            digits.length !in 8..15  -> { phoneError = "Enter a valid phone number (8–15 digits)."; ok = false }
+            digits.length !in 8..15  -> { phoneError = "Enter a valid phone number (8-15 digits)."; ok = false }
         }
 
         if (e.isBlank()) {
@@ -130,58 +129,65 @@ fun ContactDetailsScreen(
             )
 
             Spacer(Modifier.height(14.dp))
+            OrangeAccentCard(
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp)
+                ) {
+                    OutlinedTextField(
+                        value = fullName,
+                        onValueChange = { fullName = it; fullNameError = null },
+                        label = { Text("Full name") },
+                        singleLine = true,
+                        isError = fullNameError != null,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (fullNameError != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(fullNameError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
 
-            OutlinedTextField(
-                value = fullName,
-                onValueChange = { fullName = it; fullNameError = null },
-                label = { Text("Full name") },
-                singleLine = true,
-                isError = fullNameError != null,
-                modifier = Modifier.fillMaxWidth()
-            )
-            if (fullNameError != null) {
-                Spacer(Modifier.height(4.dp))
-                Text(fullNameError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = phone,
+                        onValueChange = { phone = it; phoneError = null },
+                        label = { Text("Phone number") },
+                        singleLine = true,
+                        isError = phoneError != null,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (phoneError != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(phoneError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it; emailError = null },
+                        label = { Text("Email address") },
+                        singleLine = true,
+                        isError = emailError != null,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (emailError != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(emailError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    RoleDropdown(
+                        role = role,
+                        onRoleChange = { role = it; roleError = null },
+                        isError = roleError != null,
+                        errorText = roleError
+                    )
+                }
             }
-
-            Spacer(Modifier.height(12.dp))
-
-            OutlinedTextField(
-                value = phone,
-                onValueChange = { phone = it; phoneError = null },
-                label = { Text("Phone number") },
-                singleLine = true,
-                isError = phoneError != null,
-                modifier = Modifier.fillMaxWidth()
-            )
-            if (phoneError != null) {
-                Spacer(Modifier.height(4.dp))
-                Text(phoneError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it; emailError = null },
-                label = { Text("Email address") },
-                singleLine = true,
-                isError = emailError != null,
-                modifier = Modifier.fillMaxWidth()
-            )
-            if (emailError != null) {
-                Spacer(Modifier.height(4.dp))
-                Text(emailError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            RoleDropdown(
-                role = role,
-                onRoleChange = { role = it; roleError = null },
-                isError = roleError != null,
-                errorText = roleError
-            )
 
             Spacer(Modifier.height(18.dp))
 
@@ -206,7 +212,7 @@ fun ContactDetailsScreen(
                 shape = RoundedCornerShape(10.dp)
             ) {
                 Text(
-                    "Continue",
+                    "Proceed",
                     color = MaterialTheme.colorScheme.onPrimary,
                     fontWeight = FontWeight.Bold
                 )
@@ -225,47 +231,72 @@ private fun RoleDropdown(
     errorText: String?
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val displayValue = if (role.isBlank()) "Select role" else role
+    var selectedRole by remember(role) { mutableStateOf(role.takeIf { it in ROLE_OPTIONS } ?: "") }
+    var customRole by remember(role) { mutableStateOf(role.takeIf { it !in ROLE_OPTIONS } ?: "") }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = true },
-            shape = RoundedCornerShape(10.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-            border = if (isError) CardDefaults.outlinedCardBorder() else null
-        ) {
-            OutlinedTextField(
-                value = displayValue,
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("Role") },
-                isError = isError,
-                trailingIcon = {
-                    androidx.compose.material3.Icon(
-                        imageVector = Icons.Filled.ArrowDropDown,
-                        contentDescription = "Select role"
-                    )
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            ROLE_OPTIONS.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(option) },
-                    onClick = {
-                        expanded = false
-                        onRoleChange(option)
-                    }
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.weight(1f)) {
+                OutlinedTextField(
+                    value = selectedRole.ifBlank { "Select role" },
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Role") },
+                    isError = isError,
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.ArrowDropDown,
+                            contentDescription = "Select role"
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
                 )
+
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    ROLE_OPTIONS.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option) },
+                            onClick = {
+                                expanded = false
+                                selectedRole = option
+                                customRole = ""
+                                onRoleChange(option)
+                            }
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.padding(horizontal = 4.dp))
+            Button(
+                onClick = { expanded = true },
+                modifier = Modifier.height(56.dp),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Select")
             }
         }
+
+        Spacer(Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = customRole,
+            onValueChange = {
+                customRole = it
+                if (it.isNotBlank()) {
+                    selectedRole = ""
+                    onRoleChange(it)
+                } else {
+                    onRoleChange(selectedRole)
+                }
+            },
+            label = { Text("Or enter role manually") },
+            singleLine = true,
+            isError = isError,
+            modifier = Modifier.fillMaxWidth()
+        )
 
         if (errorText != null) {
             Spacer(Modifier.height(4.dp))
