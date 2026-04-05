@@ -14,6 +14,7 @@ class CheckoutViewModel(
     private val _splitEnabled = mutableStateOf(false)
     private val _assignedByToteId = mutableStateOf<Map<String, String>>(emptyMap())
     private val _contactDetails = mutableStateOf(SavedContact())
+    private val _lookedUpContact = mutableStateOf<SavedContact?>(null)
     private val _reviewSummary = mutableStateOf<ReviewSummary?>(null)
     private val _finalCheckoutPayload = mutableStateOf<FinalCheckoutPayload?>(null)
     private val _confirmationId = mutableStateOf<String?>(null)
@@ -27,6 +28,7 @@ class CheckoutViewModel(
     val splitEnabled: Boolean get() = _splitEnabled.value
     val assignedByToteId: Map<String, String> get() = _assignedByToteId.value
     val contactDetails: SavedContact get() = _contactDetails.value
+    val lookedUpContact: SavedContact? get() = _lookedUpContact.value
     val reviewSummary: ReviewSummary? get() = _reviewSummary.value
     val finalCheckoutPayload: FinalCheckoutPayload? get() = _finalCheckoutPayload.value
     val confirmationId: String? get() = _confirmationId.value
@@ -108,6 +110,14 @@ class CheckoutViewModel(
             repository.loadCharityNames()
                 .onSuccess { _charityNames.value = it }
                 .onFailure { _submissionErrorMessage.value = "Unable to load charities right now." }
+        }
+    }
+
+    fun lookupContactByEmail(email: String) {
+        viewModelScope.launch {
+            repository.lookupContactByEmail(email)
+                .onSuccess { contact -> _lookedUpContact.value = contact }
+                .onFailure { _lookedUpContact.value = null }
         }
     }
 
@@ -222,6 +232,7 @@ class CheckoutViewModel(
         _finalCheckoutPayload.value = null
         _confirmationId.value = null
         _contactDetails.value = SavedContact()
+        _lookedUpContact.value = null
         _toteErrorMessage.value = null
         _submissionErrorMessage.value = null
         _isSubmitting.value = false

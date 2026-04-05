@@ -1,6 +1,7 @@
 package com.example.obkcheckout
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -210,53 +211,44 @@ private fun ToteCharityAssignmentRow(
 
         Spacer(Modifier.height(8.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Box(modifier = Modifier.weight(1f)) {
-                OutlinedTextField(
-                    value = selectedOption.ifBlank { "Select charity" },
-                    onValueChange = { },
-                    readOnly = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    trailingIcon = {
-                        androidx.compose.material3.Icon(
-                            imageVector = Icons.Default.KeyboardArrowDown,
-                            contentDescription = "Choose charity"
-                        )
-                    },
-                    enabled = charities.isNotEmpty()
-                )
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                value = selectedOption.ifBlank { "Select charity" },
+                onValueChange = { },
+                readOnly = true,
+                modifier = Modifier.fillMaxWidth(),
+                trailingIcon = {
+                    androidx.compose.material3.Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Choose charity"
+                    )
+                },
+                enabled = charities.isNotEmpty()
+            )
 
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    charities.forEach { charity ->
-                        DropdownMenuItem(
-                            text = { Text(charity) },
-                            onClick = {
-                                selectedOption = charity
-                                customValue = ""
-                                onValueChange(normalizeCharityName(charity))
-                                expanded = false
-                            }
-                        )
-                    }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                charities.forEach { charity ->
+                    DropdownMenuItem(
+                        text = { Text(charity) },
+                        onClick = {
+                            selectedOption = charity
+                            customValue = ""
+                            onValueChange(normalizeCharityName(charity))
+                            expanded = false
+                        }
+                    )
                 }
             }
 
-            Button(
-                onClick = { if (charities.isNotEmpty()) expanded = true },
-                enabled = charities.isNotEmpty(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFE7E7E7),
-                    contentColor = Color.Black
-                ),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Text("Select")
+            if (charities.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clickable { expanded = true }
+                )
             }
         }
 

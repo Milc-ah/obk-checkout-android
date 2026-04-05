@@ -1,6 +1,7 @@
 package com.example.obkcheckout
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -123,8 +124,7 @@ fun CharityDestinationScreen(
 
                         DropdownMenu(
                             expanded = expanded,
-                            onDismissRequest = { expanded = false },
-                            modifier = Modifier.fillMaxWidth()
+                            onDismissRequest = { expanded = false }
                         ) {
                             options.forEach { item ->
                                 DropdownMenuItem(
@@ -140,24 +140,13 @@ fun CharityDestinationScreen(
                             }
                         }
 
-                        Spacer(
-                            modifier = Modifier
-                                .matchParentSize()
-                                .padding(end = 48.dp)
-                        )
-                    }
-
-                    Button(
-                        onClick = { if (options.isNotEmpty()) expanded = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = options.isNotEmpty(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFE7E7E7),
-                            contentColor = Color.Black
-                        ),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text("Choose From List")
+                        if (options.isNotEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable { expanded = true }
+                            )
+                        }
                     }
 
                     Text(

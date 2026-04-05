@@ -29,7 +29,5 @@ open class PersonContactMapping : EntityBase() {
         get() {return field;}
         set(value) {field = value;}
 
-    var CellNumber: String
-        get() {return CellNumber;}
-        set(value) {CellNumber = value;}
+    var CellNumber: String = ""
 }

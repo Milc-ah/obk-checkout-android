@@ -2,9 +2,11 @@ package com.example.obkcheckout
 
 import android.util.Log
 import com.example.obkcheckout.Entities.Container
+import com.example.obkcheckout.Entities.NaturalPerson
 import com.example.obkcheckout.Entities.Organization
 import com.google.gson.Gson
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -75,7 +77,7 @@ class NetworkCheckoutRepository(
                     isResolved = companyName != "UNKNOWN"
                 )
             }
-        }
+        }.onFailure { if (it is CancellationException) throw it }
     }
 
     override suspend fun loadCharityNames(): Result<List<String>> {
@@ -98,7 +100,49 @@ class NetworkCheckoutRepository(
                 .filter { it.isNotBlank() }
                 .distinct()
                 .sorted()
-        }
+        }.onFailure { if (it is CancellationException) throw it }
+    }
+
+    override suspend fun lookupContactByEmail(email: String): Result<SavedContact?> {
+        return runCatching {
+            val response = api.getRecords(
+                authHeaderProvider(),
+                NaturalPerson::class.simpleName ?: "NaturalPerson",
+                mapOf(
+                    "where" to "Email='${email.trim()}'",
+                    "include" to "PersonContactMappings"
+                )
+            )
+            if (!response.isSuccessful) return@runCatching null
+
+            val rawBody = response.body() ?: return@runCatching null
+            val data = json.parseToJsonElement(rawBody)
+                .jsonObject["data"]
+                ?: return@runCatching null
+            val persons = json.decodeFromJsonElement<Array<NaturalPerson>>(data)
+            val person = persons.firstOrNull {
+                it.Email.trim().equals(email.trim(), ignoreCase = true)
+            } ?: persons.firstOrNull()
+            ?: return@runCatching null
+
+            val phone = person.PersonContactMappings
+                ?.firstOrNull { it.PhoneNumber.isNotBlank() }
+                ?.PhoneNumber
+                .orEmpty()
+                .ifBlank {
+                    person.PersonContactMappings
+                        ?.firstOrNull { it.CellNumber.isNotBlank() }
+                        ?.CellNumber
+                        .orEmpty()
+                }
+
+            SavedContact(
+                email = person.Email.trim(),
+                fullName = "${person.FirstName} ${person.LastName}".trim(),
+                phone = phone,
+                role = ""
+            )
+        }.onFailure { if (it is CancellationException) throw it }
     }
 
     override suspend fun submitCheckout(submission: CheckoutSubmission): Result<ConfirmCheckoutResponse> {
@@ -133,6 +177,7 @@ class NetworkCheckoutRepository(
             Log.d("CheckoutSubmit", "Response body: ${gson.toJson(body)}")
             body ?: error("API response error: empty response body.")
         }.onFailure { error ->
+            if (error is CancellationException) throw error
             when (error) {
                 is IOException -> Log.e("CheckoutSubmit", "Network error during checkout submission", error)
                 is SerializationException -> Log.e("CheckoutSubmit", "Serialization error during checkout submission", error)

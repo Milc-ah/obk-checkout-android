@@ -1,6 +1,7 @@
 package com.example.obkcheckout
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
 
 /*
@@ -51,8 +53,10 @@ private val ROLE_OPTIONS = listOf(
 @Composable
 fun ContactDetailsScreen(
     initialContact: SavedContact,
+    lookedUpContact: SavedContact? = null,
     onBack: () -> Unit,
-    onContinue: (SavedContact) -> Unit
+    onContinue: (SavedContact) -> Unit,
+    onRequestLookup: ((email: String) -> Unit)? = null
 ) {
     var fullName by remember { mutableStateOf(initialContact.fullName) }
     var phone    by remember { mutableStateOf(initialContact.phone) }
@@ -65,6 +69,15 @@ fun ContactDetailsScreen(
         phone    = initialContact.phone
         email    = initialContact.email
         role     = initialContact.role
+    }
+
+    // Auto-fill from backend lookup result; only overwrite blank/unchanged fields
+    LaunchedEffect(lookedUpContact) {
+        lookedUpContact?.let { found ->
+            if (found.fullName.isNotBlank()) fullName = found.fullName
+            if (found.phone.isNotBlank()) phone = found.phone
+            if (found.role.isNotBlank()) role = found.role
+        }
     }
 
     var fullNameError by remember { mutableStateOf<String?>(null) }
@@ -135,6 +148,30 @@ fun ContactDetailsScreen(
                 Column(
                     modifier = Modifier.padding(18.dp)
                 ) {
+                    // Email first — triggers backend lookup on focus lost
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it; emailError = null },
+                        label = { Text("Email address") },
+                        singleLine = true,
+                        isError = emailError != null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { focus ->
+                                if (!focus.isFocused) {
+                                    val e = normalizeEmail(email)
+                                    val emailRegex = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
+                                    if (emailRegex.matches(e)) onRequestLookup?.invoke(e)
+                                }
+                            }
+                    )
+                    if (emailError != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(emailError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
                     OutlinedTextField(
                         value = fullName,
                         onValueChange = { fullName = it; fullNameError = null },
@@ -161,21 +198,6 @@ fun ContactDetailsScreen(
                     if (phoneError != null) {
                         Spacer(Modifier.height(4.dp))
                         Text(phoneError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    }
-
-                    Spacer(Modifier.height(12.dp))
-
-                    OutlinedTextField(
-                        value = email,
-                        onValueChange = { email = it; emailError = null },
-                        label = { Text("Email address") },
-                        singleLine = true,
-                        isError = emailError != null,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    if (emailError != null) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(emailError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
 
                     Spacer(Modifier.height(12.dp))
@@ -235,48 +257,40 @@ private fun RoleDropdown(
     var customRole by remember(role) { mutableStateOf(role.takeIf { it !in ROLE_OPTIONS } ?: "") }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) {
-                OutlinedTextField(
-                    value = selectedRole.ifBlank { "Select role" },
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Role") },
-                    isError = isError,
-                    trailingIcon = {
-                        Icon(
-                            imageVector = Icons.Filled.ArrowDropDown,
-                            contentDescription = "Select role"
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                value = selectedRole.ifBlank { "Select role" },
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Role") },
+                isError = isError,
+                trailingIcon = {
+                    Icon(
+                        imageVector = Icons.Filled.ArrowDropDown,
+                        contentDescription = "Select role"
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
 
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    ROLE_OPTIONS.forEach { option ->
-                        DropdownMenuItem(
-                            text = { Text(option) },
-                            onClick = {
-                                expanded = false
-                                selectedRole = option
-                                customRole = ""
-                                onRoleChange(option)
-                            }
-                        )
-                    }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                ROLE_OPTIONS.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option) },
+                        onClick = {
+                            expanded = false
+                            selectedRole = option
+                            customRole = ""
+                            onRoleChange(option)
+                        }
+                    )
                 }
             }
-            Spacer(Modifier.padding(horizontal = 4.dp))
-            Button(
-                onClick = { expanded = true },
-                modifier = Modifier.height(56.dp),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Text("Select")
-            }
+
+            Box(modifier = Modifier.matchParentSize().clickable { expanded = true })
         }
 
         Spacer(Modifier.height(8.dp))

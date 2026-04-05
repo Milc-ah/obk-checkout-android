@@ -239,7 +239,9 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
         composable(CheckoutRoutes.CONTACT_DETAILS) {
             ContactDetailsScreen(
                 initialContact = vm.contactDetails,
+                lookedUpContact = vm.lookedUpContact,
                 onBack = { navController.popBackStack() },
+                onRequestLookup = { email -> vm.lookupContactByEmail(email) },
                 onContinue = { savedContact ->
                     vm.buildAndSetReviewSummary(savedContact)
                     navController.navigate(CheckoutRoutes.REVIEW)
