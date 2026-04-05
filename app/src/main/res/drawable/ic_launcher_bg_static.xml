@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M0,0H108V108H0Z"/>
+
+    <path
+        android:fillColor="#1B8A2E"
+        android:fillType="evenOdd"
+        android:pathData="M54,54 m-51,0 a51,51 0 1,0 102,0 a51,51 0 1,0 -102,0 M54,54 m-44,0 a44,44 0 1,0 88,0 a44,44 0 1,0 -88,0"/>
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,54 m-44,0 a44,44 0 1,0 88,0 a44,44 0 1,0 -88,0"/>
+
+    <group
+        android:name="spinning_dots"
+        android:pivotX="54"
+        android:pivotY="54">
+        <path android:fillColor="#E32D2D"
+              android:pathData="M 99,51.5 a2.5,2.5 0 1,0 5,0 a2.5,2.5 0 1,0 -5,0"/>
+        <path android:fillColor="#FF8C00"
+              android:pathData="M 27.75,92.63 a2.5,2.5 0 1,0 5,0 a2.5,2.5 0 1,0 -5,0"/>
+        <path android:fillColor="#FFFFFF"
+              android:pathData="M 27.75,10.37 a2.5,2.5 0 1,0 5,0 a2.5,2.5 0 1,0 -5,0"/>
+    </group>
+</vector>
