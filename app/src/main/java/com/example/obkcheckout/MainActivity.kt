@@ -133,11 +133,7 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
         composable(CheckoutRoutes.START) {
             ToteCheckoutStartScreen(
                 scannedByCompany = vm.scannedByCompany,
-                totalToteCount = vm.totes.size,
-                toteErrorMessage = vm.toteErrorMessage,
-                onDismissToteError = vm::clearToteError,
                 onScanClicked = { navController.navigate(CheckoutRoutes.SCANNER) },
-                onManualAdd = { toteId, companyName -> vm.addManualToteEntry(toteId, companyName) },
                 onRemove = { company, id -> vm.removeScannedId(company, id) },
                 onProceed = {
                     navController.navigate(CheckoutRoutes.CONFIRM) {
@@ -208,7 +204,10 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
                     } else {
                         navController.navigate(CheckoutRoutes.CONTACT_DETAILS)
                     }
-                }
+                },
+                isLoadingCharities = vm.isLoadingCharities,
+                charityLoadError = vm.charityLoadError,
+                onRetryLoadCharities = vm::retryLoadCharities
             )
         }
 
@@ -232,7 +231,8 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
                     } else {
                         navController.navigate(CheckoutRoutes.CONTACT_DETAILS)
                     }
-                }
+                },
+                isLoadingCharities = vm.isLoadingCharities
             )
         }
 
@@ -240,6 +240,7 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
             ContactDetailsScreen(
                 initialContact = vm.contactDetails,
                 lookedUpContact = vm.lookedUpContact,
+                isLookingUpContact = vm.isLookingUpContact,
                 onBack = { navController.popBackStack() },
                 onRequestLookup = { email -> vm.lookupContactByEmail(email) },
                 onContinue = { savedContact ->
@@ -377,21 +378,13 @@ private fun OBKSplashScreen() {
 @Composable
 private fun ToteCheckoutStartScreen(
     scannedByCompany: Map<String, List<String>>,
-    totalToteCount: Int,
-    toteErrorMessage: String?,
-    onDismissToteError: () -> Unit,
     onScanClicked: () -> Unit,
-    onManualAdd: (String, String) -> Unit,
     onRemove: (company: String, toteId: String) -> Unit,
     onProceed: () -> Unit,
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
     val activity = context.findActivity()
-    var toteId by rememberSaveable { mutableStateOf("") }
-    var companyName by rememberSaveable { mutableStateOf("") }
-    var toteIdError by rememberSaveable { mutableStateOf<String?>(null) }
-    var companyNameError by rememberSaveable { mutableStateOf<String?>(null) }
     var cameraMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var showPermissionRationale by rememberSaveable { mutableStateOf(false) }
     var showPermissionSettings by rememberSaveable { mutableStateOf(false) }
@@ -447,15 +440,6 @@ private fun ToteCheckoutStartScreen(
     val lightBg = MaterialTheme.colorScheme.primaryContainer
     val hasTotes = scannedByCompany.values.any { it.isNotEmpty() }
 
-    LaunchedEffect(totalToteCount) {
-        if (totalToteCount > 0 && toteErrorMessage == null) {
-            toteId = ""
-            companyName = ""
-            toteIdError = null
-            companyNameError = null
-        }
-    }
-
     Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
         Column(
             modifier = Modifier
@@ -493,125 +477,25 @@ private fun ToteCheckoutStartScreen(
             Spacer(Modifier.height(10.dp))
 
             Text(
-                text = "Enter Tote details to checkout",
+                text = "Scan tote QR codes to begin checkout. You can also enter tote IDs manually inside the scanner.",
                 modifier = Modifier.fillMaxWidth(),
                 color = Color.Black,
                 fontSize = fs(13),
                 fontWeight = FontWeight.Medium
             )
 
-            Spacer(Modifier.height(10.dp))
-
-            OutlinedTextField(
-                value = toteId,
-                onValueChange = {
-                    toteId = it
-                    if (!toteIdError.isNullOrEmpty()) toteIdError = null
-                    if (toteErrorMessage != null) onDismissToteError()
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Tote ID", fontSize = fs(12)) },
-                placeholder = {
-                    Text(
-                        "Enter Tote ID",
-                        fontSize = fs(13),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-                    )
-                },
-                singleLine = true
-            )
-
-            if (!toteIdError.isNullOrEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(text = toteIdError!!, color = MaterialTheme.colorScheme.error, fontSize = fs(12))
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            OutlinedTextField(
-                value = companyName,
-                onValueChange = {
-                    companyName = it
-                    if (!companyNameError.isNullOrEmpty()) companyNameError = null
-                    if (toteErrorMessage != null) onDismissToteError()
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Company Name", fontSize = fs(12)) },
-                placeholder = {
-                    Text(
-                        "Enter Company Name",
-                        fontSize = fs(13),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-                    )
-                },
-                singleLine = true
-            )
-
-            if (!companyNameError.isNullOrEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(text = companyNameError!!, color = MaterialTheme.colorScheme.error, fontSize = fs(12))
-            }
-
-            if (!toteErrorMessage.isNullOrBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = toteErrorMessage,
-                    color = MaterialTheme.colorScheme.error,
-                    fontSize = fs(12),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
             Spacer(Modifier.height(18.dp))
 
             Button(
-                onClick = {
-                    val trimmedToteId = toteId.trim()
-                    val trimmedCompanyName = companyName.trim()
-
-                    toteIdError = if (trimmedToteId.isBlank()) "Please enter a Tote ID." else null
-                    companyNameError = if (trimmedCompanyName.isBlank()) "Please enter a Company Name." else null
-
-                    if (toteIdError == null && companyNameError == null) {
-                        onManualAdd(trimmedToteId, trimmedCompanyName)
-                    }
-                },
+                onClick = { launchScanner() },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = green),
                 shape = RoundedCornerShape(10.dp)
             ) {
-                Text(
-                    "Add",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = fs(15)
-                )
-            }
-
-            Spacer(Modifier.height(22.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                HorizontalDivider(modifier = Modifier.weight(1f))
-                Text(text = "  or  ", color = Color.Gray, fontSize = fs(12))
-                HorizontalDivider(modifier = Modifier.weight(1f))
-            }
-
-            Spacer(Modifier.height(22.dp))
-
-            OutlinedButton(
-                onClick = { launchScanner() },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                border = BorderStroke(2.dp, green),
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White)
-            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "Scan QR Code",
-                        color = green,
+                        color = MaterialTheme.colorScheme.onPrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = fs(14)
                     )
@@ -619,7 +503,7 @@ private fun ToteCheckoutStartScreen(
                     androidx.compose.material3.Icon(
                         imageVector = Icons.Filled.QrCode2,
                         contentDescription = "QR",
-                        tint = green,
+                        tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(22.dp)
                     )
                 }

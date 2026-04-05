@@ -23,6 +23,9 @@ class CheckoutViewModel(
     private val _toteErrorMessage = mutableStateOf<String?>(null)
     private val _submissionErrorMessage = mutableStateOf<String?>(null)
     private val _isSubmitting = mutableStateOf(false)
+    private val _isLoadingCharities = mutableStateOf(false)
+    private val _charityLoadError = mutableStateOf<String?>(null)
+    private val _isLookingUpContact = mutableStateOf(false)
 
     val selectedCharity: String get() = _selectedCharity.value
     val splitEnabled: Boolean get() = _splitEnabled.value
@@ -41,6 +44,9 @@ class CheckoutViewModel(
     val toteErrorMessage: String? get() = _toteErrorMessage.value
     val submissionErrorMessage: String? get() = _submissionErrorMessage.value
     val isSubmitting: Boolean get() = _isSubmitting.value
+    val isLoadingCharities: Boolean get() = _isLoadingCharities.value
+    val charityLoadError: String? get() = _charityLoadError.value
+    val isLookingUpContact: Boolean get() = _isLookingUpContact.value
 
     fun setSelectedCharity(charity: String) {
         _selectedCharity.value = charity.trim()
@@ -106,18 +112,35 @@ class CheckoutViewModel(
     fun addScannedId(rawValue: String) = addTote(rawValue, ToteSource.SCANNED)
 
     fun loadCharities() {
+        _isLoadingCharities.value = true
+        _charityLoadError.value = null
         viewModelScope.launch {
             repository.loadCharityNames()
-                .onSuccess { _charityNames.value = it }
-                .onFailure { _submissionErrorMessage.value = "Unable to load charities right now." }
+                .onSuccess {
+                    _charityNames.value = it
+                    _isLoadingCharities.value = false
+                }
+                .onFailure {
+                    _isLoadingCharities.value = false
+                    _charityLoadError.value = "Unable to load charities. Tap Retry to try again."
+                }
         }
     }
 
+    fun retryLoadCharities() = loadCharities()
+
     fun lookupContactByEmail(email: String) {
+        _isLookingUpContact.value = true
         viewModelScope.launch {
             repository.lookupContactByEmail(email)
-                .onSuccess { contact -> _lookedUpContact.value = contact }
-                .onFailure { _lookedUpContact.value = null }
+                .onSuccess { contact ->
+                    _lookedUpContact.value = contact
+                    _isLookingUpContact.value = false
+                }
+                .onFailure {
+                    _lookedUpContact.value = null
+                    _isLookingUpContact.value = false
+                }
         }
     }
 
@@ -237,6 +260,7 @@ class CheckoutViewModel(
         _toteErrorMessage.value = null
         _submissionErrorMessage.value = null
         _isSubmitting.value = false
+        _isLookingUpContact.value = false
     }
 
     private fun addTote(rawValue: String, source: ToteSource) {

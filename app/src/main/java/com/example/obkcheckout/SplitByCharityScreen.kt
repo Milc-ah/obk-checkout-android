@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -45,7 +47,8 @@ fun SplitByCharityScreen(
     initialAssignments: Map<String, String>,
     onAssignmentsChanged: (Map<String, String>) -> Unit,
     onBack: () -> Unit,
-    onContinue: (assignedByToteId: Map<String, String>) -> Unit
+    onContinue: (assignedByToteId: Map<String, String>) -> Unit,
+    isLoadingCharities: Boolean = false
 ) {
     val options = remember(charities) {
         charities.map { it.trim() }.filter { it.isNotBlank() }.distinct().sorted()
@@ -95,6 +98,25 @@ fun SplitByCharityScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 contentPadding = PaddingValues(bottom = 12.dp)
             ) {
+                if (isLoadingCharities && options.isEmpty()) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Text(
+                                text = "Loading charities...",
+                                color = Color.Gray,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+
                 items(groupedTotes, key = { it.company }) { group ->
                     Column(
                         modifier = Modifier
