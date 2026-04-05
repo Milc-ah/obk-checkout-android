@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -242,11 +243,11 @@ private fun ToteCharityAssignmentRow(
                 modifier = Modifier.fillMaxWidth(),
                 trailingIcon = {
                     androidx.compose.material3.Icon(
-                        imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Choose charity"
+                        imageVector = if (expanded) Icons.Default.KeyboardArrowUp
+                                      else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (expanded) "Close list" else "Open list"
                     )
-                },
-                enabled = charities.isNotEmpty()
+                }
             )
 
             DropdownMenu(
@@ -266,13 +267,11 @@ private fun ToteCharityAssignmentRow(
                 }
             }
 
-            if (charities.isNotEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clickable { expanded = true }
-                )
-            }
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable { expanded = true }
+            )
         }
 
         Spacer(Modifier.height(8.dp))

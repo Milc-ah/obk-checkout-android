@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -46,7 +47,6 @@ fun CharityDestinationScreen(
     selectedCharity: String,
     onCharitySelected: (String) -> Unit,
     onBack: () -> Unit,
-    onSplitByCharity: () -> Unit,
     onContinue: (String) -> Unit,
     charities: List<String> = emptyList(),
     isLoadingCharities: Boolean = false,
@@ -123,11 +123,11 @@ fun CharityDestinationScreen(
                             modifier = Modifier.fillMaxWidth(),
                             trailingIcon = {
                                 Icon(
-                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "Choose charity"
+                                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp
+                                                  else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = if (expanded) "Close list" else "Open list"
                                 )
-                            },
-                            enabled = options.isNotEmpty()
+                            }
                         )
 
                         DropdownMenu(
@@ -148,13 +148,11 @@ fun CharityDestinationScreen(
                             }
                         }
 
-                        if (options.isNotEmpty()) {
-                            Box(
-                                modifier = Modifier
-                                    .matchParentSize()
-                                    .clickable { expanded = true }
-                            )
-                        }
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clickable { expanded = true }
+                        )
                     }
 
                     when {
@@ -218,23 +216,6 @@ fun CharityDestinationScreen(
                         )
                     }
 
-                    Button(
-                        onClick = onSplitByCharity,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFE0E0E0),
-                            contentColor = Color.Black
-                        ),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            text = "Split By Charity",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
                 }
             }
 

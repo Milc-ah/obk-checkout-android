@@ -190,10 +190,6 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
                 charities = vm.charityNames,
                 onCharitySelected = { vm.setSelectedCharity(it) },
                 onBack = { navController.popBackStack() },
-                onSplitByCharity = {
-                    vm.setSplitEnabled(true)
-                    navController.navigate("${CheckoutRoutes.SPLIT_BY_CHARITY}?returnToReview=$returnToReview")
-                },
                 onContinue = { charity ->
                     vm.setSelectedCharity(charity)
                     vm.setSplitEnabled(false)
