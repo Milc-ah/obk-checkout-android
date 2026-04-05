@@ -171,7 +171,11 @@ class NetworkCheckoutRepository(
                     "CheckoutSubmit",
                     "API response error: code=${response.code()} url=${response.raw().request.url} body=$errorBody"
                 )
-                error("API response error: code=${response.code()}")
+                val userMessage = errorBody
+                    ?.let { runCatching { json.parseToJsonElement(it).jsonObject["message"]?.toString()?.trim('"') }.getOrNull() }
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "Checkout failed (code ${response.code()}). Please try again."
+                error(userMessage)
             }
             val body = response.body()
             Log.d("CheckoutSubmit", "Response body: ${gson.toJson(body)}")

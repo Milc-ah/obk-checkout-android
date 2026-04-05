@@ -217,7 +217,8 @@ class CheckoutViewModel(
                 )
                 onSuccess()
             }.onFailure { error ->
-                _submissionErrorMessage.value = "Something went wrong while submitting checkout. Please try again."
+                _submissionErrorMessage.value = error.message
+                    ?: "Something went wrong while submitting checkout. Please try again."
             }
             _isSubmitting.value = false
         }

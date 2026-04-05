@@ -11,7 +11,7 @@ object QairosRetrofit {
     private const val BASE_URL = "https://apps.ensembleconsultinggroup.com/QairosDataServerOBK/QairosOBK/api/"
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.NONE
+        level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY else HttpLoggingInterceptor.Level.NONE
     }
 
     private val okHttpClient = OkHttpClient.Builder()

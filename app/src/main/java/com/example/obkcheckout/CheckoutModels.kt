@@ -1,5 +1,6 @@
 package com.example.obkcheckout
 
+import com.google.gson.annotations.SerializedName
 import java.util.Locale
 import kotlinx.serialization.Serializable
 
@@ -106,8 +107,10 @@ data class ConfirmCheckoutRequest(
 
 @Serializable
 data class ConfirmCheckoutResponse(
-    val confirmationId: String,
-    val mealsGrandTotal: Int,
+    @SerializedName(value = "confirmationId", alternate = ["confirmation_id", "ConfirmationId"])
+    val confirmationId: String = "",
+    @SerializedName(value = "mealsGrandTotal", alternate = ["meals_grand_total", "MealsGrandTotal"])
+    val mealsGrandTotal: Int = 0,
     val reviewSummary: ReviewSummary? = null
 )
 

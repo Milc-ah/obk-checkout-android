@@ -33,7 +33,7 @@ open class EntityBase() {
 
     var LastUpdatedBy: String = ""
         get() {return field}
-        set(value) {var field = value}
+        set(value) {field = value}
 
     var Timestamp: Instant = Clock.System.now()
         get() {return field}
