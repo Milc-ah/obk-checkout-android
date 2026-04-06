@@ -18,8 +18,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -47,6 +49,7 @@ fun CharityDestinationScreen(
     selectedCharity: String,
     onCharitySelected: (String) -> Unit,
     onBack: () -> Unit,
+    onSplitByCharity: () -> Unit,
     onContinue: (String) -> Unit,
     charities: List<String> = emptyList(),
     isLoadingCharities: Boolean = false,
@@ -213,6 +216,23 @@ fun CharityDestinationScreen(
                             text = it,
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onSplitByCharity,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, Color(0xFF888888)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color.White
+                        )
+                    ) {
+                        Text(
+                            "Split By Charity",
+                            color = Color(0xFF444444),
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 15.sp
                         )
                     }
 

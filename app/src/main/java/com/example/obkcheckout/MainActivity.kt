@@ -40,7 +40,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -132,14 +131,7 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
 
         composable(CheckoutRoutes.START) {
             ToteCheckoutStartScreen(
-                scannedByCompany = vm.scannedByCompany,
                 onScanClicked = { navController.navigate(CheckoutRoutes.SCANNER) },
-                onRemove = { company, id -> vm.removeScannedId(company, id) },
-                onProceed = {
-                    navController.navigate(CheckoutRoutes.CONFIRM) {
-                        launchSingleTop = true
-                    }
-                },
                 onLogout = {
                     TokenStore.clear()
                     vm.reset()
@@ -190,6 +182,10 @@ private fun OBKApp(vm: CheckoutViewModel = viewModel()) {
                 charities = vm.charityNames,
                 onCharitySelected = { vm.setSelectedCharity(it) },
                 onBack = { navController.popBackStack() },
+                onSplitByCharity = {
+                    vm.setSplitEnabled(true)
+                    navController.navigate("${CheckoutRoutes.SPLIT_BY_CHARITY}?returnToReview=$returnToReview")
+                },
                 onContinue = { charity ->
                     vm.setSelectedCharity(charity)
                     vm.setSplitEnabled(false)
@@ -370,13 +366,9 @@ private fun OBKSplashScreen() {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ToteCheckoutStartScreen(
-    scannedByCompany: Map<String, List<String>>,
     onScanClicked: () -> Unit,
-    onRemove: (company: String, toteId: String) -> Unit,
-    onProceed: () -> Unit,
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
@@ -434,7 +426,6 @@ private fun ToteCheckoutStartScreen(
 
     val green = MaterialTheme.colorScheme.primary
     val lightBg = MaterialTheme.colorScheme.primaryContainer
-    val hasTotes = scannedByCompany.values.any { it.isNotEmpty() }
 
     Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
         Column(
@@ -524,63 +515,7 @@ private fun ToteCheckoutStartScreen(
                 )
             }
 
-            Spacer(Modifier.height(24.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(14.dp))
-            Text(
-                text = "Totes added",
-                fontSize = fs(14),
-                fontWeight = FontWeight.Bold,
-                color = Color.Black,
-                modifier = Modifier.fillMaxWidth()
-            )
-            if (hasTotes) {
-                scannedByCompany.toSortedMap().forEach { (company, ids) ->
-                    Text(
-                        text = company.ifBlank { "UNKNOWN" },
-                        fontSize = fs(14),
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Black,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 14.dp, bottom = 8.dp)
-                    )
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        ids.forEach { id ->
-                            OBKIdChip(id = id, onRemove = { onRemove(company, id) })
-                        }
-                    }
-                }
-            } else {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "No totes added yet.",
-                    color = Color.Gray,
-                    fontSize = fs(12),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            Spacer(Modifier.height(20.dp))
-            Button(
-                onClick = onProceed,
-                enabled = hasTotes,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = green),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Text(
-                    "Continue",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = fs(14)
-                )
-            }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(16.dp))
         }
     }
 
