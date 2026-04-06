@@ -242,3 +242,4 @@ private fun CameraPreviewWithAnalyzer(onBarcode: (String) -> Unit) {
         }
     )
 }
+//

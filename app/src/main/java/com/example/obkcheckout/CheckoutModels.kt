@@ -136,3 +136,5 @@ fun formatCharityList(charities: List<String>): String {
         .distinct()
     return if (cleaned.isEmpty()) "Not assigned" else cleaned.joinToString(" and ")
 }
+
+//

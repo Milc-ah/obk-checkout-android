@@ -46,3 +46,4 @@ internal fun normalizeToToteId(rawValue: String): String {
     val digits = cleaned.takeWhile { it.isDigit() }
     return if (digits.isNotBlank()) digits else cleaned
 }
+//

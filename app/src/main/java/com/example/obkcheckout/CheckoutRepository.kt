@@ -6,3 +6,5 @@ interface CheckoutRepository {
     suspend fun submitCheckout(submission: CheckoutSubmission): Result<ConfirmCheckoutResponse>
     suspend fun lookupContactByEmail(email: String): Result<SavedContact?>
 }
+
+//

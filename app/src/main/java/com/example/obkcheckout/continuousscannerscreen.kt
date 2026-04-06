@@ -319,3 +319,5 @@ fun ContinuousScannerScreen(
         }
     }
 }
+
+//
